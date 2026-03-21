@@ -8,9 +8,7 @@ from typing import Optional
 
 from app.intervals_client import IntervalsClient
 
-INCREMENTAL_NOTES_LOOKBACK_DAYS = 21
-INCREMENTAL_WEEKLY_SUMMARY_LOOKBACK_DAYS = 63
-INCREMENTAL_ACTIVITIES_LOOKBACK_DAYS = 42
+INCREMENTAL_NOTES_LOOKBACK_DAYS = 7
 
 
 def start_sync_run(
@@ -88,16 +86,12 @@ def sync_intervals_days(
         note_rows = client.fetch_notes(oldest=notes_oldest, newest=newest)
         notes_fetch_seconds = round(time.perf_counter() - fetch_started_at, 3)
 
-        summary_oldest = today - timedelta(
-            days=max(days, INCREMENTAL_WEEKLY_SUMMARY_LOOKBACK_DAYS) - 1
-        )
+        summary_oldest = oldest
         fetch_started_at = time.perf_counter()
         weekly_summary_rows = client.fetch_athlete_summary(start=summary_oldest, end=newest)
         weekly_summary_fetch_seconds = round(time.perf_counter() - fetch_started_at, 3)
 
-        activities_oldest = today - timedelta(
-            days=max(days, INCREMENTAL_ACTIVITIES_LOOKBACK_DAYS) - 1
-        )
+        activities_oldest = oldest
         fetch_started_at = time.perf_counter()
         activity_rows = client.fetch_activities(oldest=activities_oldest, newest=newest)
         activities_fetch_seconds = round(time.perf_counter() - fetch_started_at, 3)

@@ -89,10 +89,11 @@ python3 -m app.main export-metrics
 Under the hood the incremental sync currently does:
 
 - wellness sync for the last `N` days
-- notes sync for the last `21` days
-- weekly summary sync for the last `63` days
+- notes sync for the last `max(N, 7)` days
+- weekly summary sync for the last `N` days
+- activities sync for the last `N` days
 
-This keeps the daily sync small while still giving enough room for late updates and rolling trend calculations.
+This keeps the daily sync focused on genuinely fresh data, while the long history stays in the local database after the initial backfill.
 
 First-time setup for a new user:
 
@@ -104,7 +105,7 @@ python3 -m app.main export-metrics
 Why `365` on the first run:
 
 - it backfills daily wellness data for one year
-- it also expands notes and weekly summary windows to the same one-year range
+- it also backfills notes, weekly summaries, and activities for the same one-year range
 - this gives enough history for `90d / 365d` daily baselines and long weekly trend context
 
 After the initial backfill, switch to the normal daily workflow with `daily-sync`.
