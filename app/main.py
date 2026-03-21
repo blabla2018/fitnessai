@@ -117,6 +117,8 @@ def command_export_snapshot(output_json: str, output_prompt: str) -> None:
 
     output_json_path = Path(output_json)
     output_prompt_path = Path(output_prompt)
+    metric_date = snapshot["current_snapshot"]["metric_date"]
+    dated_json_path = output_json_path.with_name(f"metrics_{metric_date}.json")
     prompt_template_path = (
         Path(__file__).resolve().parent.parent
         / "prompts"
@@ -128,7 +130,14 @@ def command_export_snapshot(output_json: str, output_prompt: str) -> None:
         output_prompt_path,
         prompt_template_path,
     )
+    export_snapshot_files(
+        snapshot,
+        dated_json_path,
+        output_prompt_path,
+        prompt_template_path,
+    )
     print(f"Snapshot JSON saved to: {output_json_path}")
+    print(f"Dated snapshot JSON saved to: {dated_json_path}")
     print(f"Manual prompt saved to: {output_prompt_path}")
 
 
