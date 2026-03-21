@@ -5,9 +5,9 @@ import json
 from pathlib import Path
 
 from app.config import get_settings
-from app.db import connect_db, ensure_single_athlete, initialize_database
+from app.db import connect_db, initialize_database
 from app.intervals_client import IntervalsClient
-from app.snapshot_builder import build_snapshot, export_snapshot_files
+from app.snapshot_builder import build_snapshot, export_metrics_file
 from app.sync_service import summarize_recent_data, sync_intervals_days
 
 
@@ -32,18 +32,13 @@ def build_parser() -> argparse.ArgumentParser:
     show_recent_parser.add_argument("--days", type=int, default=7)
 
     export_parser = subparsers.add_parser(
-        "export-snapshot",
-        help="Export a compact JSON snapshot and a ready-to-paste prompt for manual AI use",
+        "export-metrics",
+        help="Export a dated metrics JSON file for ChatGPT Project use",
     )
     export_parser.add_argument(
-        "--output-json",
-        default="data/current_snapshot.json",
-        help="Path to the JSON snapshot file",
-    )
-    export_parser.add_argument(
-        "--output-prompt",
-        default="data/current_prompt.txt",
-        help="Path to the ready-to-paste prompt file",
+        "--output-dir",
+        default="data",
+        help="Directory where the dated metrics JSON file will be saved",
     )
 
     return parser
@@ -54,23 +49,13 @@ def command_init_db() -> None:
     schema_path = Path(__file__).resolve().parent.parent / "db" / "schema.sql"
     initialize_database(settings.database_path, schema_path)
 
-    with connect_db(settings.database_path) as connection:
-        athlete_id = ensure_single_athlete(
-            connection=connection,
-            display_name=settings.athlete_name,
-            timezone=settings.athlete_timezone,
-            external_id=settings.intervals_athlete_id,
-        )
-
     print(f"Database initialized at: {settings.database_path}")
-    print(f"Single athlete is ready with id={athlete_id}")
+    print("Single-user database is ready")
 
 
 def command_show_config() -> None:
     settings = get_settings()
     print(f"app_name={settings.app_name}")
-    print(f"athlete_name={settings.athlete_name}")
-    print(f"athlete_timezone={settings.athlete_timezone}")
     print(f"database_path={settings.database_path}")
     print(f"intervals_base_url={settings.intervals_base_url}")
     print(f"intervals_athlete_id={settings.intervals_athlete_id}")
@@ -83,20 +68,13 @@ def command_sync_intervals(days: int) -> None:
         base_url=settings.intervals_base_url,
         athlete_id=settings.intervals_athlete_id,
         api_key=settings.intervals_api_key,
-        request_pause_seconds=settings.intervals_request_pause_seconds,
+        request_pause_seconds=0.5,
     )
 
     with connect_db(settings.database_path) as connection:
-        athlete_id = ensure_single_athlete(
-            connection=connection,
-            display_name=settings.athlete_name,
-            timezone=settings.athlete_timezone,
-            external_id=settings.intervals_athlete_id,
-        )
         summary = sync_intervals_days(
             connection=connection,
             client=client,
-            athlete_id=athlete_id,
             days=days,
         )
 
@@ -110,35 +88,16 @@ def command_show_recent_data(days: int) -> None:
     print(json.dumps(summary, ensure_ascii=False, indent=2))
 
 
-def command_export_snapshot(output_json: str, output_prompt: str) -> None:
+def command_export_metrics(output_dir: str) -> None:
     settings = get_settings()
     with connect_db(settings.database_path) as connection:
         snapshot = build_snapshot(connection)
 
-    output_json_path = Path(output_json)
-    output_prompt_path = Path(output_prompt)
+    output_dir_path = Path(output_dir)
     metric_date = snapshot["current_snapshot"]["metric_date"]
-    dated_json_path = output_json_path.with_name(f"metrics_{metric_date}.json")
-    prompt_template_path = (
-        Path(__file__).resolve().parent.parent
-        / "prompts"
-        / "manual_analysis_prompt_template.txt"
-    )
-    export_snapshot_files(
-        snapshot,
-        output_json_path,
-        output_prompt_path,
-        prompt_template_path,
-    )
-    export_snapshot_files(
-        snapshot,
-        dated_json_path,
-        output_prompt_path,
-        prompt_template_path,
-    )
-    print(f"Snapshot JSON saved to: {output_json_path}")
-    print(f"Dated snapshot JSON saved to: {dated_json_path}")
-    print(f"Manual prompt saved to: {output_prompt_path}")
+    output_json_path = output_dir_path / f"metrics_{metric_date}.json"
+    export_metrics_file(snapshot, output_json_path)
+    print(f"Metrics JSON saved to: {output_json_path}")
 
 
 def main() -> None:
@@ -155,8 +114,8 @@ def main() -> None:
         command_sync_intervals(3)
     elif args.command == "show-recent-data":
         command_show_recent_data(args.days)
-    elif args.command == "export-snapshot":
-        command_export_snapshot(args.output_json, args.output_prompt)
+    elif args.command == "export-metrics":
+        command_export_metrics(args.output_dir)
     else:
         raise ValueError(f"Unsupported command: {args.command}")
 

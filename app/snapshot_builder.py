@@ -36,11 +36,9 @@ def build_snapshot(connection: sqlite3.Connection) -> dict[str, Any]:
     return snapshot
 
 
-def export_snapshot_files(
+def export_metrics_file(
     snapshot: dict[str, Any],
     output_json_path: Path,
-    output_prompt_path: Path,
-    prompt_template_path: Path,
 ) -> None:
     export_snapshot = _prune_for_export(snapshot)
     output_json_path.parent.mkdir(parents=True, exist_ok=True)
@@ -48,15 +46,6 @@ def export_snapshot_files(
         json.dumps(export_snapshot, ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
-
-    prompt_text = build_manual_prompt(export_snapshot, prompt_template_path)
-    output_prompt_path.write_text(prompt_text, encoding="utf-8")
-
-
-def build_manual_prompt(snapshot: dict[str, Any], prompt_template_path: Path) -> str:
-    snapshot_json = json.dumps(snapshot, ensure_ascii=False, separators=(",", ":"))
-    template = prompt_template_path.read_text(encoding="utf-8")
-    return template.replace("{{SNAPSHOT_JSON}}", snapshot_json)
 
 
 def _build_current_snapshot(

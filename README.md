@@ -6,7 +6,7 @@ Designed for:
 
 - local-first development with SQLite
 - read-only Intervals sync
-- compact JSON + prompt export for LLM analysis
+- compact dated metrics JSON export for LLM analysis
 - a later path to GitHub + Google Cloud deployment
 
 ## What it does
@@ -14,8 +14,8 @@ Designed for:
 - syncs daily wellness and fitness-state data from Intervals
 - imports weekly notes and day notes
 - stores the data in a local SQLite database
-- builds compact snapshots for AI analysis
-- exports a ready-to-paste prompt for manual LLM use
+- builds compact metrics snapshots for AI analysis
+- exports a dated `metrics_YYYY-MM-DD.json` file for ChatGPT Project use
 
 ## Safety rule for Intervals
 
@@ -60,7 +60,7 @@ export INTERVALS_API_KEY="..."
 Implemented:
 
 - SQLite schema
-- single-athlete app config
+- single-user local data model
 - database initialization command
 - sync run bookkeeping
 - read-only Intervals wellness sync
@@ -71,17 +71,17 @@ Intervals is currently used for daily metrics and fitness-state data only.
 - We also ingest Intervals `NOTES`, including weekly notes and day-specific notes.
 - We do not rely on Intervals activities as workout truth because many workouts are Strava-sourced and incomplete via the Intervals API.
 
-For manual AI experiments without an API key, export a compact snapshot and a ready-to-paste prompt:
+Export a dated metrics JSON for ChatGPT Project use:
 
 ```bash
-python3 -m app.main export-snapshot
+python3 -m app.main export-metrics
 ```
 
 Recommended daily workflow:
 
 ```bash
 python3 -m app.main daily-sync
-python3 -m app.main export-snapshot
+python3 -m app.main export-metrics
 ```
 
 `daily-sync` re-syncs the last 3 days, which is safer than syncing only 1 day because Intervals values and notes can settle or update slightly after the first import.
@@ -94,14 +94,24 @@ Under the hood the incremental sync currently does:
 
 This keeps the daily sync small while still giving enough room for late updates and rolling trend calculations.
 
+First-time setup for a new user:
+
+```bash
+python3 -m app.main sync-intervals --days 365
+python3 -m app.main export-metrics
+```
+
+Why `365` on the first run:
+
+- it backfills daily wellness data for one year
+- it also expands notes and weekly summary windows to the same one-year range
+- this gives enough history for `90d / 365d` daily baselines and long weekly trend context
+
+After the initial backfill, switch to the normal daily workflow with `daily-sync`.
+
 This writes:
 
-- `data/current_snapshot.json`
-- `data/current_prompt.txt`
-
-Edit the prompt template here:
-
-- `prompts/manual_analysis_prompt_template.txt`
+- `data/metrics_YYYY-MM-DD.json`
 
 Next step:
 

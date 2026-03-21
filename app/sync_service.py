@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import sqlite3
 import json
+import time
 from datetime import date, datetime, timedelta, timezone
 from typing import Optional
 
@@ -62,7 +63,6 @@ def finish_sync_run(
 def sync_intervals_days(
     connection: sqlite3.Connection,
     client: IntervalsClient,
-    athlete_id: int,
     days: int,
 ) -> dict:
     today = datetime.now(timezone.utc).date()
@@ -78,17 +78,25 @@ def sync_intervals_days(
     )
 
     try:
+        fetch_started_at = time.perf_counter()
         wellness_rows = client.fetch_wellness(oldest=oldest, newest=newest)
+        wellness_fetch_seconds = round(time.perf_counter() - fetch_started_at, 3)
+
         notes_oldest = today - timedelta(days=max(days, INCREMENTAL_NOTES_LOOKBACK_DAYS) - 1)
+        fetch_started_at = time.perf_counter()
         note_rows = client.fetch_notes(oldest=notes_oldest, newest=newest)
+        notes_fetch_seconds = round(time.perf_counter() - fetch_started_at, 3)
+
         summary_oldest = today - timedelta(
             days=max(days, INCREMENTAL_WEEKLY_SUMMARY_LOOKBACK_DAYS) - 1
         )
+        fetch_started_at = time.perf_counter()
         weekly_summary_rows = client.fetch_athlete_summary(start=summary_oldest, end=newest)
-        wellness_upserts = upsert_wellness_rows(connection, athlete_id, wellness_rows)
-        note_upserts = upsert_note_rows(connection, athlete_id, note_rows)
+        weekly_summary_fetch_seconds = round(time.perf_counter() - fetch_started_at, 3)
+        wellness_upserts = upsert_wellness_rows(connection, wellness_rows)
+        note_upserts = upsert_note_rows(connection, note_rows)
         weekly_summary_upserts = upsert_weekly_summary_rows(
-            connection, athlete_id, client.athlete_id, weekly_summary_rows
+            connection, client.athlete_id, weekly_summary_rows
         )
 
         finish_sync_run(
@@ -102,12 +110,23 @@ def sync_intervals_days(
             "days": days,
             "oldest": oldest.isoformat(),
             "newest": newest.isoformat(),
+            "notes_oldest": notes_oldest.isoformat(),
+            "weekly_summary_oldest": summary_oldest.isoformat(),
             "wellness_rows": len(wellness_rows),
             "note_rows": len(note_rows),
             "weekly_summary_rows": len(weekly_summary_rows),
             "wellness_upserts": wellness_upserts,
             "note_upserts": note_upserts,
             "weekly_summary_upserts": weekly_summary_upserts,
+            "fetch_timings_seconds": {
+                "wellness": wellness_fetch_seconds,
+                "notes": notes_fetch_seconds,
+                "weekly_summary": weekly_summary_fetch_seconds,
+                "total_fetch": round(
+                    wellness_fetch_seconds + notes_fetch_seconds + weekly_summary_fetch_seconds,
+                    3,
+                ),
+            },
         }
     except Exception as exc:
         finish_sync_run(
@@ -121,7 +140,6 @@ def sync_intervals_days(
 
 def upsert_wellness_rows(
     connection: sqlite3.Connection,
-    athlete_id: int,
     rows: list[dict],
 ) -> int:
     upserts = 0
@@ -134,7 +152,6 @@ def upsert_wellness_rows(
         connection.execute(
             """
             INSERT INTO athlete_metrics_daily (
-                athlete_id,
                 metric_date,
                 weight_kg,
                 sleep_seconds,
@@ -162,8 +179,8 @@ def upsert_wellness_rows(
                 raw_json,
                 updated_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-            ON CONFLICT(athlete_id, metric_date) DO UPDATE SET
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            ON CONFLICT(metric_date) DO UPDATE SET
                 weight_kg = excluded.weight_kg,
                 sleep_seconds = excluded.sleep_seconds,
                 sleep_score = excluded.sleep_score,
@@ -191,7 +208,6 @@ def upsert_wellness_rows(
                 updated_at = CURRENT_TIMESTAMP
             """,
             (
-                athlete_id,
                 metric_date,
                 _to_float(row.get("weight")),
                 _to_int(row.get("sleepSecs")),
@@ -227,7 +243,6 @@ def upsert_wellness_rows(
 
 def upsert_note_rows(
     connection: sqlite3.Connection,
-    athlete_id: int,
     rows: list[dict],
 ) -> int:
     upserts = 0
@@ -242,7 +257,6 @@ def upsert_note_rows(
         connection.execute(
             """
             INSERT INTO intervals_notes (
-                athlete_id,
                 source,
                 external_id,
                 start_date_local,
@@ -256,7 +270,7 @@ def upsert_note_rows(
                 raw_json,
                 updated_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
             ON CONFLICT(source, external_id) DO UPDATE SET
                 start_date_local = excluded.start_date_local,
                 end_date_local = excluded.end_date_local,
@@ -270,7 +284,6 @@ def upsert_note_rows(
                 updated_at = CURRENT_TIMESTAMP
             """,
             (
-                athlete_id,
                 "intervals",
                 str(external_id),
                 start_date_local,
@@ -292,7 +305,6 @@ def upsert_note_rows(
 
 def upsert_weekly_summary_rows(
     connection: sqlite3.Connection,
-    athlete_id: int,
     athlete_external_id: Optional[str],
     rows: list[dict],
 ) -> int:
@@ -307,7 +319,6 @@ def upsert_weekly_summary_rows(
         connection.execute(
             """
             INSERT INTO intervals_weekly_stats (
-                athlete_id,
                 source,
                 week_start_date,
                 workouts_count,
@@ -329,7 +340,7 @@ def upsert_weekly_summary_rows(
                 raw_json,
                 updated_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
             ON CONFLICT(source, week_start_date) DO UPDATE SET
                 workouts_count = excluded.workouts_count,
                 time_seconds = excluded.time_seconds,
@@ -351,7 +362,6 @@ def upsert_weekly_summary_rows(
                 updated_at = CURRENT_TIMESTAMP
             """,
             (
-                athlete_id,
                 "intervals",
                 week_start_date,
                 _to_int(row.get("count")),

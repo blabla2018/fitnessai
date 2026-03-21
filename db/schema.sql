@@ -1,16 +1,3 @@
-CREATE TABLE IF NOT EXISTS athletes (
-    id INTEGER PRIMARY KEY,
-    external_id TEXT,
-    source TEXT NOT NULL DEFAULT 'intervals',
-    display_name TEXT,
-    timezone TEXT NOT NULL DEFAULT 'Europe/Madrid',
-    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-);
-
-CREATE UNIQUE INDEX IF NOT EXISTS idx_athletes_source_external
-    ON athletes(source, external_id);
-
 CREATE TABLE IF NOT EXISTS sync_runs (
     id INTEGER PRIMARY KEY,
     source TEXT NOT NULL,
@@ -27,7 +14,6 @@ CREATE TABLE IF NOT EXISTS sync_runs (
 
 CREATE TABLE IF NOT EXISTS athlete_metrics_daily (
     id INTEGER PRIMARY KEY,
-    athlete_id INTEGER NOT NULL,
     metric_date TEXT NOT NULL,
     weight_kg REAL,
     sleep_seconds INTEGER,
@@ -57,19 +43,17 @@ CREATE TABLE IF NOT EXISTS athlete_metrics_daily (
     notes TEXT,
     raw_json TEXT,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (athlete_id) REFERENCES athletes(id)
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_athlete_metrics_daily_unique
-    ON athlete_metrics_daily(athlete_id, metric_date);
+    ON athlete_metrics_daily(metric_date);
 
 CREATE INDEX IF NOT EXISTS idx_athlete_metrics_daily_date
     ON athlete_metrics_daily(metric_date);
 
 CREATE TABLE IF NOT EXISTS intervals_notes (
     id INTEGER PRIMARY KEY,
-    athlete_id INTEGER NOT NULL,
     source TEXT NOT NULL DEFAULT 'intervals',
     external_id TEXT NOT NULL,
     start_date_local TEXT NOT NULL,
@@ -82,8 +66,7 @@ CREATE TABLE IF NOT EXISTS intervals_notes (
     updated_at_remote TEXT,
     raw_json TEXT,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (athlete_id) REFERENCES athletes(id)
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_intervals_notes_source_external
@@ -94,7 +77,6 @@ CREATE INDEX IF NOT EXISTS idx_intervals_notes_local_date
 
 CREATE TABLE IF NOT EXISTS intervals_weekly_stats (
     id INTEGER PRIMARY KEY,
-    athlete_id INTEGER NOT NULL,
     source TEXT NOT NULL DEFAULT 'intervals',
     week_start_date TEXT NOT NULL,
     workouts_count INTEGER,
@@ -115,8 +97,7 @@ CREATE TABLE IF NOT EXISTS intervals_weekly_stats (
     by_category_json TEXT,
     raw_json TEXT,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (athlete_id) REFERENCES athletes(id)
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_intervals_weekly_stats_unique
@@ -124,7 +105,6 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_intervals_weekly_stats_unique
 
 CREATE TABLE IF NOT EXISTS workouts (
     id INTEGER PRIMARY KEY,
-    athlete_id INTEGER NOT NULL,
     source TEXT NOT NULL DEFAULT 'intervals',
     external_id TEXT NOT NULL,
     started_at_utc TEXT NOT NULL,
@@ -148,15 +128,14 @@ CREATE TABLE IF NOT EXISTS workouts (
     workout_notes TEXT,
     raw_json TEXT,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (athlete_id) REFERENCES athletes(id)
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_workouts_source_external
     ON workouts(source, external_id);
 
-CREATE INDEX IF NOT EXISTS idx_workouts_athlete_started
-    ON workouts(athlete_id, started_at_utc);
+CREATE INDEX IF NOT EXISTS idx_workouts_started
+    ON workouts(started_at_utc);
 
 CREATE INDEX IF NOT EXISTS idx_workouts_local_date
     ON workouts(local_date);
@@ -180,7 +159,6 @@ CREATE INDEX IF NOT EXISTS idx_workout_metrics_name
 
 CREATE TABLE IF NOT EXISTS daily_training_aggregates (
     id INTEGER PRIMARY KEY,
-    athlete_id INTEGER NOT NULL,
     aggregate_date TEXT NOT NULL,
     workouts_count INTEGER NOT NULL DEFAULT 0,
     total_duration_seconds INTEGER NOT NULL DEFAULT 0,
@@ -192,9 +170,8 @@ CREATE TABLE IF NOT EXISTS daily_training_aggregates (
     moderate_sessions_count INTEGER NOT NULL DEFAULT 0,
     easy_sessions_count INTEGER NOT NULL DEFAULT 0,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (athlete_id) REFERENCES athletes(id)
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_daily_training_aggregates_unique
-    ON daily_training_aggregates(athlete_id, aggregate_date);
+    ON daily_training_aggregates(aggregate_date);

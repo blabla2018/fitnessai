@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import sqlite3
 from pathlib import Path
-from typing import Optional
 
 
 ATHLETE_METRICS_DAILY_ADDITIONAL_COLUMNS = {
@@ -51,43 +50,3 @@ def _migrate_schema(connection: sqlite3.Connection) -> None:
             connection.execute(
                 f"ALTER TABLE athlete_metrics_daily ADD COLUMN {column_name} {column_type}"
             )
-
-
-def ensure_single_athlete(
-    connection: sqlite3.Connection,
-    display_name: str,
-    timezone: str,
-    source: str = "intervals",
-    external_id: Optional[str] = None,
-) -> int:
-    existing = connection.execute(
-        """
-        SELECT id
-        FROM athletes
-        WHERE source = ? AND COALESCE(external_id, '') = COALESCE(?, '')
-        LIMIT 1
-        """,
-        (source, external_id),
-    ).fetchone()
-
-    if existing:
-        connection.execute(
-            """
-            UPDATE athletes
-            SET display_name = ?, timezone = ?, updated_at = CURRENT_TIMESTAMP
-            WHERE id = ?
-            """,
-            (display_name, timezone, existing["id"]),
-        )
-        connection.commit()
-        return int(existing["id"])
-
-    cursor = connection.execute(
-        """
-        INSERT INTO athletes (external_id, source, display_name, timezone)
-        VALUES (?, ?, ?, ?)
-        """,
-        (external_id, source, display_name, timezone),
-    )
-    connection.commit()
-    return int(cursor.lastrowid)
