@@ -26,6 +26,7 @@ def build_snapshot(connection: sqlite3.Connection) -> dict[str, Any]:
         "daily_series": _build_daily_series(connection, current_date, 14),
         "fitness_model_series": _build_fitness_model_series(connection, current_date, 14),
         "subjective_series": _build_subjective_series(connection, current_date, 14),
+        "individual_sessions_recent": _build_individual_sessions_recent(connection, current_date, 42),
         "weekly_series": _build_weekly_series(connection, current_date, 8),
         "weekly_series_extended": _build_weekly_series(connection, current_date, 104),
         "trends": _trend_block(connection, current_date, {"3d": 3, "7d": 7, "14d": 14, "28d": 28}),
@@ -209,6 +210,120 @@ def _build_weekly_series(
             }
         )
     return weekly_series
+
+
+def _build_individual_sessions_recent(
+    connection: sqlite3.Connection,
+    current_date: str,
+    days: int,
+) -> list[dict[str, Any]]:
+    oldest = (date.fromisoformat(current_date) - timedelta(days=days - 1)).isoformat()
+    rows = connection.execute(
+        """
+        SELECT
+            w.id,
+            w.local_date,
+            w.title,
+            w.sport_type,
+            w.sub_type,
+            w.source_device,
+            w.duration_seconds,
+            w.avg_hr_bpm,
+            w.max_hr_bpm,
+            w.avg_power_watts,
+            w.normalized_power_watts,
+            w.training_load,
+            w.perceived_exertion,
+            w.raw_json,
+            (
+                SELECT wm.metric_value
+                FROM workout_metrics wm
+                WHERE wm.workout_id = w.id AND wm.metric_name = 'average_cadence'
+                LIMIT 1
+            ) AS cadence_avg,
+            (
+                SELECT wm.metric_value
+                FROM workout_metrics wm
+                WHERE wm.workout_id = w.id AND wm.metric_name = 'intensity_factor'
+                LIMIT 1
+            ) AS intensity_factor
+            ,
+            (
+                SELECT wm.metric_value
+                FROM workout_metrics wm
+                WHERE wm.workout_id = w.id AND wm.metric_name = 'eftp'
+                LIMIT 1
+            ) AS ftp_reference
+        FROM workouts w
+        WHERE w.local_date >= ?
+        ORDER BY w.local_date DESC, w.started_at_utc DESC
+        """,
+        (oldest,),
+    ).fetchall()
+
+    sessions = []
+    for row in rows:
+        item = dict(row)
+        raw = _parse_json_or_none(item.get("raw_json")) or {}
+        title = _first_non_null(item.get("title"), raw.get("name"))
+        sport_type = _first_non_null(item.get("sport_type"), raw.get("type"))
+        duration_seconds = _first_non_null(
+            item.get("duration_seconds"),
+            raw.get("elapsed_time"),
+            raw.get("moving_time"),
+        )
+        power_avg = _first_non_null(
+            item.get("avg_power_watts"),
+            raw.get("icu_average_watts"),
+            raw.get("average_watts"),
+        )
+        power_np = _first_non_null(
+            item.get("normalized_power_watts"),
+            raw.get("icu_norm_power"),
+            raw.get("icu_weighted_avg_watts"),
+            raw.get("weighted_avg_watts"),
+        )
+        intensity_factor = _first_non_null(item.get("intensity_factor"), raw.get("icu_intensity"))
+        ftp_reference = _first_non_null(
+            item.get("ftp_reference"),
+            raw.get("icu_pm_ftp_watts"),
+            raw.get("icu_ftp"),
+        )
+        hr_avg = _first_non_null(item.get("avg_hr_bpm"), raw.get("average_heartrate"))
+        hr_max = _first_non_null(item.get("max_hr_bpm"), raw.get("max_heartrate"))
+        cadence_avg = _first_non_null(item.get("cadence_avg"), raw.get("average_cadence"))
+        rpe = _first_non_null(item.get("perceived_exertion"), raw.get("icu_rpe"))
+        training_load = _first_non_null(item.get("training_load"), raw.get("icu_training_load"))
+
+        if not any(
+            value is not None
+            for value in (title, sport_type, duration_seconds, power_np, hr_avg, training_load)
+        ):
+            continue
+
+        sessions.append(
+            {
+                "date": item.get("local_date"),
+                "type": _session_type_label(sport_type),
+                "name": title,
+                "duration_min": _round_or_none(
+                    _seconds_to_minutes(duration_seconds),
+                    1,
+                ),
+                "power_avg": _round_or_none(_to_float_or_none(power_avg), 0),
+                "power_np": _round_or_none(_to_float_or_none(power_np), 0),
+                "if": _round_or_none(_normalize_intensity_factor(intensity_factor), 2),
+                "ftp_reference": _round_or_none(_to_float_or_none(ftp_reference), 0),
+                "hr_avg": _round_or_none(_to_float_or_none(hr_avg), 0),
+                "hr_max": _round_or_none(_to_float_or_none(hr_max), 0),
+                "cadence_avg": _round_or_none(_to_float_or_none(cadence_avg), 0),
+                "rpe": _round_or_none(_to_float_or_none(rpe), 1),
+                "training_load": _round_or_none(_to_float_or_none(training_load), 1),
+                "sport_type_raw": sport_type,
+                "source_device": _first_non_null(item.get("source_device"), raw.get("device_name")),
+            }
+        )
+    return sessions
 
 
 def _build_weekly_derived(weekly_series: list[dict[str, Any]]) -> dict[str, Any]:
@@ -688,10 +803,29 @@ def _seconds_to_hours(value: Any) -> Optional[float]:
     return float(value) / 3600.0
 
 
+def _seconds_to_minutes(value: Any) -> Optional[float]:
+    if value in (None, ""):
+        return None
+    return float(value) / 60.0
+
+
 def _meters_to_km(value: Any) -> Optional[float]:
     if value in (None, ""):
         return None
     return float(value) / 1000.0
+
+
+def _session_type_label(sport_type: Optional[str]) -> Optional[str]:
+    if not sport_type:
+        return None
+    mapping = {
+        "VirtualRide": "bike_indoor",
+        "Ride": "bike_outdoor",
+        "Run": "run",
+        "VirtualRun": "run_indoor",
+        "Workout": "gym",
+    }
+    return mapping.get(sport_type, sport_type)
 
 
 def _mean(values: Iterable[Optional[float]]) -> Optional[float]:
@@ -699,6 +833,24 @@ def _mean(values: Iterable[Optional[float]]) -> Optional[float]:
     if not cleaned:
         return None
     return sum(cleaned) / len(cleaned)
+
+
+def _to_float_or_none(value: Any) -> Optional[float]:
+    if value in (None, ""):
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _normalize_intensity_factor(value: Any) -> Optional[float]:
+    numeric = _to_float_or_none(value)
+    if numeric is None:
+        return None
+    if numeric > 2.0:
+        return numeric / 100.0
+    return numeric
 
 
 def _coefficient_of_variation(values: Iterable[Optional[float]]) -> Optional[float]:

@@ -10,6 +10,7 @@ from app.intervals_client import IntervalsClient
 
 INCREMENTAL_NOTES_LOOKBACK_DAYS = 21
 INCREMENTAL_WEEKLY_SUMMARY_LOOKBACK_DAYS = 63
+INCREMENTAL_ACTIVITIES_LOOKBACK_DAYS = 42
 
 
 def start_sync_run(
@@ -93,18 +94,37 @@ def sync_intervals_days(
         fetch_started_at = time.perf_counter()
         weekly_summary_rows = client.fetch_athlete_summary(start=summary_oldest, end=newest)
         weekly_summary_fetch_seconds = round(time.perf_counter() - fetch_started_at, 3)
+
+        activities_oldest = today - timedelta(
+            days=max(days, INCREMENTAL_ACTIVITIES_LOOKBACK_DAYS) - 1
+        )
+        fetch_started_at = time.perf_counter()
+        activity_rows = client.fetch_activities(oldest=activities_oldest, newest=newest)
+        activities_fetch_seconds = round(time.perf_counter() - fetch_started_at, 3)
+
         wellness_upserts = upsert_wellness_rows(connection, wellness_rows)
         note_upserts = upsert_note_rows(connection, note_rows)
         weekly_summary_upserts = upsert_weekly_summary_rows(
             connection, client.athlete_id, weekly_summary_rows
         )
+        activity_upserts = upsert_activity_rows(connection, activity_rows)
 
         finish_sync_run(
             connection=connection,
             sync_run_id=sync_run_id,
             status="success",
-            records_seen=len(wellness_rows) + len(note_rows) + len(weekly_summary_rows),
-            records_upserted=wellness_upserts + note_upserts + weekly_summary_upserts,
+            records_seen=(
+                len(wellness_rows)
+                + len(note_rows)
+                + len(weekly_summary_rows)
+                + len(activity_rows)
+            ),
+            records_upserted=(
+                wellness_upserts
+                + note_upserts
+                + weekly_summary_upserts
+                + activity_upserts
+            ),
         )
         return {
             "days": days,
@@ -112,18 +132,25 @@ def sync_intervals_days(
             "newest": newest.isoformat(),
             "notes_oldest": notes_oldest.isoformat(),
             "weekly_summary_oldest": summary_oldest.isoformat(),
+            "activities_oldest": activities_oldest.isoformat(),
             "wellness_rows": len(wellness_rows),
             "note_rows": len(note_rows),
             "weekly_summary_rows": len(weekly_summary_rows),
+            "activity_rows": len(activity_rows),
             "wellness_upserts": wellness_upserts,
             "note_upserts": note_upserts,
             "weekly_summary_upserts": weekly_summary_upserts,
+            "activity_upserts": activity_upserts,
             "fetch_timings_seconds": {
                 "wellness": wellness_fetch_seconds,
                 "notes": notes_fetch_seconds,
                 "weekly_summary": weekly_summary_fetch_seconds,
+                "activities": activities_fetch_seconds,
                 "total_fetch": round(
-                    wellness_fetch_seconds + notes_fetch_seconds + weekly_summary_fetch_seconds,
+                    wellness_fetch_seconds
+                    + notes_fetch_seconds
+                    + weekly_summary_fetch_seconds
+                    + activities_fetch_seconds,
                     3,
                 ),
             },
@@ -389,6 +416,186 @@ def upsert_weekly_summary_rows(
     return upserts
 
 
+def upsert_activity_rows(
+    connection: sqlite3.Connection,
+    rows: list[dict],
+) -> int:
+    upserts = 0
+
+    for row in rows:
+        if not _is_useful_activity(row):
+            continue
+
+        external_id = row.get("id")
+        started_at_utc = row.get("start_date")
+        start_date_local = row.get("start_date_local")
+        if not external_id or not started_at_utc or not start_date_local:
+            continue
+
+        local_date = start_date_local[:10]
+        cursor = connection.execute(
+            """
+            INSERT INTO workouts (
+                source,
+                external_id,
+                started_at_utc,
+                ended_at_utc,
+                local_date,
+                title,
+                sport_type,
+                sub_type,
+                source_device,
+                duration_seconds,
+                distance_meters,
+                elevation_gain_meters,
+                calories_kcal,
+                avg_hr_bpm,
+                max_hr_bpm,
+                avg_power_watts,
+                max_power_watts,
+                normalized_power_watts,
+                training_load,
+                perceived_exertion,
+                workout_notes,
+                raw_json,
+                updated_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            ON CONFLICT(source, external_id) DO UPDATE SET
+                started_at_utc = excluded.started_at_utc,
+                ended_at_utc = excluded.ended_at_utc,
+                local_date = excluded.local_date,
+                title = excluded.title,
+                sport_type = excluded.sport_type,
+                sub_type = excluded.sub_type,
+                source_device = excluded.source_device,
+                duration_seconds = excluded.duration_seconds,
+                distance_meters = excluded.distance_meters,
+                elevation_gain_meters = excluded.elevation_gain_meters,
+                calories_kcal = excluded.calories_kcal,
+                avg_hr_bpm = excluded.avg_hr_bpm,
+                max_hr_bpm = excluded.max_hr_bpm,
+                avg_power_watts = excluded.avg_power_watts,
+                max_power_watts = excluded.max_power_watts,
+                normalized_power_watts = excluded.normalized_power_watts,
+                training_load = excluded.training_load,
+                perceived_exertion = excluded.perceived_exertion,
+                workout_notes = excluded.workout_notes,
+                raw_json = excluded.raw_json,
+                updated_at = CURRENT_TIMESTAMP
+            """,
+            (
+                "intervals",
+                str(external_id),
+                started_at_utc,
+                _end_time_from_activity(row),
+                local_date,
+                row.get("name"),
+                row.get("type"),
+                row.get("trainer_ride_type"),
+                _first_non_empty(row.get("device_name"), row.get("device")),
+                _to_int(_first_non_empty(row.get("elapsed_time"), row.get("moving_time"))),
+                _to_float(row.get("distance")),
+                _to_float(_first_non_empty(row.get("total_elevation_gain"), row.get("elevation_gain"))),
+                _to_float(row.get("calories")),
+                _to_float(row.get("average_heartrate")),
+                _to_float(row.get("max_heartrate")),
+                _to_float(_first_non_empty(row.get("icu_average_watts"), row.get("average_watts"))),
+                _to_float(row.get("max_watts")),
+                _to_float(
+                    _first_non_empty(
+                        row.get("icu_norm_power"),
+                        row.get("icu_weighted_avg_watts"),
+                        row.get("weighted_avg_watts"),
+                    )
+                ),
+                _to_float(row.get("icu_training_load")),
+                _to_float(row.get("icu_rpe")),
+                row.get("description") or None,
+                json.dumps(row, ensure_ascii=False),
+            ),
+        )
+
+        workout_id = connection.execute(
+            """
+            SELECT id
+            FROM workouts
+            WHERE source = ? AND external_id = ?
+            LIMIT 1
+            """,
+            ("intervals", str(external_id)),
+        ).fetchone()
+        if workout_id:
+            _upsert_workout_metric(
+                connection,
+                int(workout_id[0]),
+                "average_cadence",
+                _to_float(row.get("average_cadence")),
+                "rpm",
+            )
+            _upsert_workout_metric(
+                connection,
+                int(workout_id[0]),
+                "intensity_factor",
+                _to_float(row.get("icu_intensity")),
+                "ratio",
+            )
+            _upsert_workout_metric(
+                connection,
+                int(workout_id[0]),
+                "eftp",
+                _to_float(_first_non_empty(row.get("icu_pm_ftp_watts"), row.get("icu_ftp"))),
+                "watts",
+            )
+            _upsert_workout_metric(
+                connection,
+                int(workout_id[0]),
+                "weighted_avg_watts",
+                _to_float(
+                    _first_non_empty(
+                        row.get("icu_norm_power"),
+                        row.get("icu_weighted_avg_watts"),
+                        row.get("weighted_avg_watts"),
+                    )
+                ),
+                "watts",
+            )
+
+        upserts += 1
+
+    connection.commit()
+    return upserts
+
+
+def _upsert_workout_metric(
+    connection: sqlite3.Connection,
+    workout_id: int,
+    metric_name: str,
+    metric_value: Optional[float],
+    metric_unit: Optional[str],
+) -> None:
+    if metric_value is None:
+        return
+
+    connection.execute(
+        """
+        INSERT INTO workout_metrics (
+            workout_id,
+            metric_name,
+            metric_value,
+            metric_unit,
+            updated_at
+        )
+        VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
+        ON CONFLICT(workout_id, metric_name) DO UPDATE SET
+            metric_value = excluded.metric_value,
+            metric_unit = excluded.metric_unit,
+            updated_at = CURRENT_TIMESTAMP
+        """,
+        (workout_id, metric_name, metric_value, metric_unit),
+    )
+
+
 def summarize_recent_data(
     connection: sqlite3.Connection,
     days: int,
@@ -441,3 +648,51 @@ def _to_int(value: object) -> Optional[int]:
     if number is None:
         return None
     return int(round(number))
+
+
+def _first_non_empty(*values: object) -> object:
+    for value in values:
+        if value not in (None, ""):
+            return value
+    return None
+
+
+def _end_time_from_activity(row: dict) -> Optional[str]:
+    started_at = row.get("start_date")
+    elapsed_seconds = _to_int(_first_non_empty(row.get("elapsed_time"), row.get("moving_time")))
+    if not started_at or elapsed_seconds is None:
+        return None
+
+    try:
+        started = datetime.fromisoformat(str(started_at).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return (started + timedelta(seconds=elapsed_seconds)).isoformat().replace("+00:00", "Z")
+
+
+def _is_useful_activity(row: dict) -> bool:
+    if not row:
+        return False
+    if str(row.get("source") or "").upper() == "STRAVA":
+        return False
+
+    has_identity = any(
+        row.get(key) not in (None, "")
+        for key in ("name", "type", "device_name", "device")
+    )
+    has_duration = (
+        _to_int(_first_non_empty(row.get("elapsed_time"), row.get("moving_time"))) is not None
+    )
+    has_load = _to_float(row.get("icu_training_load")) is not None
+    has_power = _to_float(
+        _first_non_empty(
+            row.get("icu_norm_power"),
+            row.get("icu_weighted_avg_watts"),
+            row.get("weighted_avg_watts"),
+            row.get("icu_average_watts"),
+            row.get("average_watts"),
+        )
+    ) is not None
+    has_hr = _to_float(_first_non_empty(row.get("average_heartrate"), row.get("max_heartrate"))) is not None
+
+    return has_identity and (has_duration or has_load or has_power or has_hr)

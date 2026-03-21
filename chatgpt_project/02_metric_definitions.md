@@ -16,6 +16,10 @@
 - `ride_eftp_wkg` and `run_eftp_wkg` = the same performance proxies normalized by body weight.
 - `training_load` = weekly modeled load from Intervals.
 - `session_rpe_load` = subjective session load, usually something like `duration × RPE`.
+- `power_np` = normalized power or weighted average power proxy for a session.
+- `if` = intensity factor for a session. Interpret it as relative intensity, not as load by itself.
+- `rpe` = session rating of perceived exertion.
+- `cadence_avg` = average cadence for the session.
 
 Interpretation rules:
 
