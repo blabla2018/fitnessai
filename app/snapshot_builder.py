@@ -27,9 +27,9 @@ def build_snapshot(connection: sqlite3.Connection) -> dict[str, Any]:
         "fitness_model_series": _build_fitness_model_series(connection, current_date, 14),
         "subjective_series": _build_subjective_series(connection, current_date, 14),
         "weekly_series": _build_weekly_series(connection, current_date, 8),
+        "weekly_series_extended": _build_weekly_series(connection, current_date, 104),
         "trends": _trend_block(connection, current_date, {"3d": 3, "7d": 7, "14d": 14, "28d": 28}),
         "notes_context": _build_notes_context(connection, current_date, 21, limit=5),
-        "interpretation_hints": _interpretation_hints(current, connection, current_date),
     }
     snapshot["weekly_derived"] = _build_weekly_derived(snapshot["weekly_series"])
     snapshot["long_term_baselines"] = _build_long_term_baselines(connection, current_date)
@@ -126,18 +126,11 @@ def _build_subjective_series(
     fields = ["motivation_score", "mood_score"]
     all_series = {field: _series(rows, field, digits=2) for field in fields}
     series = {}
-    missing_in_source = []
     for field, field_series in all_series.items():
         non_null_points = sum(1 for point in field_series if point["value"] is not None)
         if non_null_points > 0:
             series[field] = field_series
-        else:
-            missing_in_source.append(field)
-
-    return {
-        "series": series,
-        "missing_in_source": missing_in_source,
-    }
+    return {"series": series}
 
 
 def _build_weekly_series(
@@ -265,7 +258,6 @@ def _trend_block(
     for label, days in windows.items():
         rows = _load_metrics_rows(connection, current_date, days)
         trends[label] = {
-            "days": days,
             "rows": len(rows),
             "coverage": _round_or_none(len(rows) / float(days), 2),
             "avg_sleep_hours": _round_or_none(
@@ -418,37 +410,6 @@ def _build_notes_context(
             }
         )
     return notes
-
-
-def _interpretation_hints(
-    current: dict[str, Any],
-    connection: sqlite3.Connection,
-    current_date: str,
-) -> dict[str, Any]:
-    baseline_7d = _load_window_average(connection, current_date, 7)
-    baseline_14d = _load_window_average(connection, current_date, 14)
-    baseline_28d = _load_window_average(connection, current_date, 28)
-    sleep_hours = _seconds_to_hours(current.get("sleep_seconds"))
-
-    return {
-        "sleep_vs_7d_hours": _round_or_none(_safe_subtract(sleep_hours, baseline_7d.get("sleep_hours")), 2),
-        "resting_hr_vs_14d": _round_or_none(
-            _safe_subtract(current.get("resting_hr_bpm"), baseline_14d.get("resting_hr_bpm")),
-            2,
-        ),
-        "hrv_vs_14d": _round_or_none(_safe_subtract(current.get("hrv_ms"), baseline_14d.get("hrv_ms")), 2),
-        "form": _round_or_none(_safe_subtract(current.get("ctl"), current.get("atl")), 2),
-        "ride_eftp_vs_28d": _round_or_none(
-            _safe_subtract(current.get("ride_eftp_watts"), baseline_28d.get("ride_eftp_watts")),
-            2,
-        ),
-        "hrv_cv_7d_pct": _round_or_none(
-            _coefficient_of_variation(
-                row.get("hrv_ms") for row in _load_metrics_rows(connection, current_date, 7)
-            ),
-            2,
-        ),
-    }
 
 
 def _build_long_term_baselines(
