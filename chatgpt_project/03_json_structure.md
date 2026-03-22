@@ -3,10 +3,8 @@
 Use the JSON blocks like this:
 
 - `current_snapshot` = current state on the analysis date. Main source for current values.
-- `daily_series` = recent daily series for sleep, HRV, RHR, weight, form, and FTP. Use for short-term trends and stability.
-- `fitness_model_series` = daily series for `fitness`, `fatigue`, `form`, `ramp_rate`.
-- `subjective_series.series` = actually populated manual subjective scales, currently mainly `mood_score` and `motivation_score`.
-- `individual_sessions_recent` = individual activity sessions from Intervals for the last 6 weeks. Use them for session-level context such as duration, power, NP, IF, HR, cadence, and RPE when available.
+- `daily_records` = recent daily records with sleep, weight, HRV, RHR, subjective scores, fitness/fatigue/form, ramp rate, and FTP fields combined per date. Use this as the main short-term daily context block.
+- `individual_sessions_recent` = individual activity sessions from Intervals for the last 6 weeks. Use them for session-level context such as duration, power, NP, IF, HR, cadence, RPE, session note, and same-day `mood` / `motivation` when available.
 - `weekly_series` = main weekly series: workouts count, distance, elevation, calories, training load, weekly fitness/fatigue/form, weight, FTP, session RPE load.
 - `weekly_series_extended` = extended weekly history for medium-term trend and historical questions.
 - `weekly_derived` = precomputed comparison of current week vs previous week and vs 4-week baseline.

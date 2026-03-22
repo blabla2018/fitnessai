@@ -20,6 +20,16 @@
 - `if` = intensity factor for a session. Interpret it as relative intensity, not as load by itself.
 - `rpe` = session rating of perceived exertion.
 - `cadence_avg` = average cadence for the session.
+- `mood` = same-day subjective mood / emotional tone, typically on a `1..4` scale:
+  - `1` = very low / poor mood
+  - `2` = average
+  - `3` = good
+  - `4` = great
+- `motivation` = same-day subjective willingness to train, typically on a `1..4` scale:
+  - `1` = very low motivation / strong resistance to train
+  - `2` = average / acceptable motivation
+  - `3` = high motivation
+  - `4` = extreme motivation
 
 Interpretation rules:
 
@@ -33,4 +43,8 @@ Interpretation rules:
 - Analyze weight only as a trend and context signal, without medical conclusions.
 - If weight is missing or too sparse, explicitly say that the weight conclusion is limited.
 - Do not treat `ramp rate` as a standalone signal.
+- Do not over-interpret `mood` or `motivation` in isolation.
+- `mood` and `motivation` become much more useful when interpreted together with session `RPE`, `IF`, and execution quality.
+- Low `mood` / low `motivation` with high `RPE` at only moderate `IF` can support a fatigue or low-readiness interpretation.
+- Good `mood` / good `motivation` with controlled `RPE` at meaningful `IF` can support a positive readiness or good adaptation interpretation.
 - Do not reduce the entire conclusion to one metric. Base conclusions on at least 2-3 aligned signals or clearly lower confidence.

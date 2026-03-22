@@ -101,7 +101,7 @@ def sync_intervals_days(
         weekly_summary_upserts = upsert_weekly_summary_rows(
             connection, client.athlete_id, weekly_summary_rows
         )
-        activity_upserts = upsert_activity_rows(connection, activity_rows)
+        activity_upserts = upsert_activity_rows(connection, client, activity_rows)
 
         finish_sync_run(
             connection=connection,
@@ -412,6 +412,7 @@ def upsert_weekly_summary_rows(
 
 def upsert_activity_rows(
     connection: sqlite3.Connection,
+    client: IntervalsClient,
     rows: list[dict],
 ) -> int:
     upserts = 0
@@ -427,7 +428,11 @@ def upsert_activity_rows(
             continue
 
         local_date = start_date_local[:10]
-        cursor = connection.execute(
+        try:
+            activity_note = _extract_activity_note(client.fetch_activity_messages(str(external_id)))
+        except Exception:
+            activity_note = None
+        connection.execute(
             """
             INSERT INTO workouts (
                 source,
@@ -505,7 +510,7 @@ def upsert_activity_rows(
                 ),
                 _to_float(row.get("icu_training_load")),
                 _to_float(row.get("icu_rpe")),
-                row.get("description") or None,
+                _first_non_empty(activity_note, row.get("description")),
                 json.dumps(row, ensure_ascii=False),
             ),
         )
@@ -662,6 +667,20 @@ def _end_time_from_activity(row: dict) -> Optional[str]:
     except ValueError:
         return None
     return (started + timedelta(seconds=elapsed_seconds)).isoformat().replace("+00:00", "Z")
+
+
+def _extract_activity_note(messages: list[dict]) -> Optional[str]:
+    text_candidates: list[str] = []
+    for message in messages:
+        if not isinstance(message, dict):
+            continue
+        for key in ("message", "text", "body", "content", "description", "note"):
+            value = message.get(key)
+            if isinstance(value, str) and value.strip():
+                text_candidates.append(value.strip())
+    if not text_candidates:
+        return None
+    return text_candidates[-1]
 
 
 def _is_useful_activity(row: dict) -> bool:

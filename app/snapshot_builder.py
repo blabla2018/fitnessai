@@ -23,9 +23,7 @@ def build_snapshot(connection: sqlite3.Connection) -> dict[str, Any]:
     current_date = current["metric_date"]
     snapshot = {
         "current_snapshot": _build_current_snapshot(connection, current, current_date),
-        "daily_series": _build_daily_series(connection, current_date, 14),
-        "fitness_model_series": _build_fitness_model_series(connection, current_date, 14),
-        "subjective_series": _build_subjective_series(connection, current_date, 14),
+        "daily_records": _build_daily_records(connection, current_date, 14),
         "individual_sessions_recent": _build_individual_sessions_recent(connection, current_date, 42),
         "weekly_series": _build_weekly_series(connection, current_date, 8),
         "weekly_series_extended": _build_weekly_series(connection, current_date, 104),
@@ -84,54 +82,44 @@ def _build_current_snapshot(
     }
 
 
-def _build_daily_series(
+def _build_daily_records(
     connection: sqlite3.Connection,
     current_date: str,
     days: int,
-) -> dict[str, list[dict[str, Any]]]:
+) -> list[dict[str, Any]]:
     rows = _load_metrics_rows(connection, current_date, days)
-    return {
-        "sleep_hours": _series(rows, "sleep_seconds", transform=_seconds_to_hours, digits=2),
-        "weight_kg": _series(rows, "weight_kg", digits=2),
-        "hrv_ms": _series(rows, "hrv_ms", digits=2),
-        "resting_hr_bpm": _series(rows, "resting_hr_bpm", digits=2),
-        "form": _derived_form_series(rows),
-        "ride_eftp_watts": _series(rows, "ride_eftp_watts", digits=2),
-        "ride_eftp_wkg": _derived_wkg_series(rows, "ride_eftp_watts"),
-        "run_eftp": _series(rows, "run_eftp", digits=2),
-        "run_eftp_wkg": _derived_wkg_series(rows, "run_eftp"),
-    }
-
-
-def _build_fitness_model_series(
-    connection: sqlite3.Connection,
-    current_date: str,
-    days: int,
-) -> dict[str, list[dict[str, Any]]]:
-    rows = _load_metrics_rows(connection, current_date, days)
-    series = {
-        "fitness": _series(rows, "ctl", digits=2),
-        "fatigue": _series(rows, "atl", digits=2),
-        "ramp_rate": _series(rows, "ramp_rate", digits=2),
-    }
-    series["form"] = _derived_form_series(rows)
-    return series
-
-
-def _build_subjective_series(
-    connection: sqlite3.Connection,
-    current_date: str,
-    days: int,
-) -> dict[str, Any]:
-    rows = _load_metrics_rows(connection, current_date, days)
-    fields = ["motivation_score", "mood_score"]
-    all_series = {field: _series(rows, field, digits=2) for field in fields}
-    series = {}
-    for field, field_series in all_series.items():
-        non_null_points = sum(1 for point in field_series if point["value"] is not None)
-        if non_null_points > 0:
-            series[field] = field_series
-    return {"series": series}
+    records = []
+    for row in sorted(rows, key=lambda item: item["metric_date"]):
+        weight_kg = row.get("weight_kg")
+        ride_eftp_watts = row.get("ride_eftp_watts")
+        run_eftp = row.get("run_eftp")
+        fitness = row.get("ctl")
+        fatigue = row.get("atl")
+        records.append(
+            {
+                "date": row.get("metric_date"),
+                "sleep_hours": _round_or_none(_seconds_to_hours(row.get("sleep_seconds")), 2),
+                "sleep_score": _round_or_none(_to_float_or_none(row.get("sleep_score")), 1),
+                "sleep_quality_score": _round_or_none(
+                    _to_float_or_none(row.get("sleep_quality_score")),
+                    1,
+                ),
+                "weight_kg": _round_or_none(_to_float_or_none(weight_kg), 2),
+                "hrv_ms": _round_or_none(_to_float_or_none(row.get("hrv_ms")), 2),
+                "resting_hr_bpm": _round_or_none(_to_float_or_none(row.get("resting_hr_bpm")), 2),
+                "mood_score": _round_or_none(_to_float_or_none(row.get("mood_score")), 1),
+                "motivation_score": _round_or_none(_to_float_or_none(row.get("motivation_score")), 1),
+                "fitness": _round_or_none(_to_float_or_none(fitness), 2),
+                "fatigue": _round_or_none(_to_float_or_none(fatigue), 2),
+                "form": _round_or_none(_safe_subtract(fitness, fatigue), 2),
+                "ramp_rate": _round_or_none(_to_float_or_none(row.get("ramp_rate")), 2),
+                "ride_eftp_watts": _round_or_none(_to_float_or_none(ride_eftp_watts), 2),
+                "ride_eftp_wkg": _round_or_none(_watts_per_kg(ride_eftp_watts, weight_kg), 2),
+                "run_eftp": _round_or_none(_to_float_or_none(run_eftp), 2),
+                "run_eftp_wkg": _round_or_none(_watts_per_kg(run_eftp, weight_kg), 2),
+            }
+        )
+    return records
 
 
 def _build_weekly_series(
@@ -234,7 +222,10 @@ def _build_individual_sessions_recent(
             w.normalized_power_watts,
             w.training_load,
             w.perceived_exertion,
+            w.workout_notes,
             w.raw_json,
+            d.mood_score,
+            d.motivation_score,
             (
                 SELECT wm.metric_value
                 FROM workout_metrics wm
@@ -255,6 +246,8 @@ def _build_individual_sessions_recent(
                 LIMIT 1
             ) AS ftp_reference
         FROM workouts w
+        LEFT JOIN athlete_metrics_daily d
+            ON d.metric_date = w.local_date
         WHERE w.local_date >= ?
         ORDER BY w.local_date DESC, w.started_at_utc DESC
         """,
@@ -294,6 +287,7 @@ def _build_individual_sessions_recent(
         cadence_avg = _first_non_null(item.get("cadence_avg"), raw.get("average_cadence"))
         rpe = _first_non_null(item.get("perceived_exertion"), raw.get("icu_rpe"))
         training_load = _first_non_null(item.get("training_load"), raw.get("icu_training_load"))
+        note = _first_non_null(item.get("workout_notes"), raw.get("description"))
 
         if not any(
             value is not None
@@ -319,6 +313,9 @@ def _build_individual_sessions_recent(
                 "cadence_avg": _round_or_none(_to_float_or_none(cadence_avg), 0),
                 "rpe": _round_or_none(_to_float_or_none(rpe), 1),
                 "training_load": _round_or_none(_to_float_or_none(training_load), 1),
+                "note": note,
+                "mood": _round_or_none(_to_float_or_none(item.get("mood_score")), 1),
+                "motivation": _round_or_none(_to_float_or_none(item.get("motivation_score")), 1),
                 "sport_type_raw": sport_type,
                 "source_device": _first_non_null(item.get("source_device"), raw.get("device_name")),
             }
@@ -689,53 +686,6 @@ def _latest_metric_within_week(
     if row is None:
         return None
     return row[0]
-
-
-def _series(
-    rows: list[dict[str, Any]],
-    key: str,
-    transform: Optional[Any] = None,
-    digits: int = 2,
-) -> list[dict[str, Any]]:
-    series = []
-    for row in sorted(rows, key=lambda item: item["metric_date"]):
-        raw_value = row.get(key)
-        value = transform(raw_value) if transform else raw_value
-        series.append(
-            {
-                "date": row.get("metric_date"),
-                "value": _round_or_none(value, digits) if value is not None else None,
-            }
-        )
-    return series
-
-
-def _derived_form_series(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    series = []
-    for row in sorted(rows, key=lambda item: item["metric_date"]):
-        series.append(
-            {
-                "date": row.get("metric_date"),
-                "value": _round_or_none(_safe_subtract(row.get("ctl"), row.get("atl")), 2),
-            }
-        )
-    return series
-
-
-def _derived_wkg_series(rows: list[dict[str, Any]], ftp_key: str) -> list[dict[str, Any]]:
-    series = []
-    for row in sorted(rows, key=lambda item: item["metric_date"]):
-        weight_kg = _first_non_null(
-            row.get("weight_kg"),
-            _latest_known_weight_from_rows(rows, row.get("metric_date")),
-        )
-        series.append(
-            {
-                "date": row.get("metric_date"),
-                "value": _round_or_none(_watts_per_kg(row.get(ftp_key), weight_kg), 2),
-            }
-        )
-    return series
 
 
 def _category_eftp(by_category: Optional[list[dict[str, Any]]], category_name: str) -> Optional[float]:

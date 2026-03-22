@@ -35,6 +35,8 @@ Interpretation guidance:
 - If notes and metrics disagree, mention both signals and lower confidence.
 - Explicitly call out contradictions when they matter.
 - Use notes to detect patterns such as overreaching goals, failed intervals, unusually high heart rate, cadence drop, or unusually easy execution.
+- If individual session objects include `mood` and `motivation`, interpret them together with session `RPE`, `IF`, and power / HR execution, not in isolation.
+- If session-level subjective data is absent, say that session-level psychological context is limited.
 - If weight is absent or too sparse, say that the weight conclusion is limited.
 - If data quality is weak, say so explicitly.
 
