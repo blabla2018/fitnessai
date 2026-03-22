@@ -8,6 +8,7 @@ ATHLETE_METRICS_DAILY_ADDITIONAL_COLUMNS = {
     "sleep_quality_score": "REAL",
     "avg_sleeping_hr_bpm": "REAL",
     "hrv_sdnn_ms": "REAL",
+    "vo2max": "REAL",
     "readiness_score": "REAL",
     "spo2_percent": "REAL",
     "respiration_rate": "REAL",

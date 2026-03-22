@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
 from datetime import date, timedelta
 from pathlib import Path
@@ -36,9 +37,9 @@ def build_snapshot(connection: sqlite3.Connection) -> dict[str, Any]:
             104,
             RECENT_DETAILED_WEEKS,
         ),
-        "trends": _trend_block(connection, current_date, {"3d": 3, "7d": 7, "14d": 14, "28d": 28}),
+        "current_trends": _trend_block(connection, current_date, {"3d": 3, "7d": 7, "14d": 14, "28d": 28}),
     }
-    snapshot["long_term_baselines"] = _build_long_term_baselines(connection, current_date)
+    snapshot["personal_baselines"] = _build_long_term_baselines(connection, current_date)
     return snapshot
 
 
@@ -48,10 +49,13 @@ def export_metrics_file(
 ) -> None:
     export_snapshot = _prune_for_export(snapshot)
     output_json_path.parent.mkdir(parents=True, exist_ok=True)
-    output_json_path.write_text(
-        json.dumps(export_snapshot, ensure_ascii=False, indent=2),
-        encoding="utf-8",
-    )
+    serialized = json.dumps(export_snapshot, ensure_ascii=False, indent=2)
+    temp_path = output_json_path.with_suffix(f"{output_json_path.suffix}.tmp")
+    with temp_path.open("w", encoding="utf-8") as handle:
+        handle.write(serialized)
+        handle.flush()
+        os.fsync(handle.fileno())
+    temp_path.replace(output_json_path)
 
 
 def _build_current_week(
@@ -246,6 +250,7 @@ def _build_day_object(
         "sleep_quality_score": _round_or_none(_to_float_or_none(row.get("sleep_quality_score")), 1),
         "weight_kg": _round_or_none(_to_float_or_none(weight_kg), 2),
         "hrv_ms": _round_or_none(_to_float_or_none(row.get("hrv_ms")), 2),
+        "vo2max": _round_or_none(_to_float_or_none(row.get("vo2max")), 2),
         "resting_hr_bpm": _round_or_none(_to_float_or_none(row.get("resting_hr_bpm")), 2),
         "mood_score": _round_or_none(_to_float_or_none(row.get("mood_score")), 1),
         "motivation_score": _round_or_none(_to_float_or_none(row.get("motivation_score")), 1),
@@ -497,56 +502,294 @@ def _trend_block(
     current_date: str,
     windows: dict[str, int],
 ) -> dict[str, Any]:
-    trends: dict[str, Any] = {}
-    for label, days in windows.items():
-        rows = _load_metrics_rows(connection, current_date, days)
-        trends[label] = {
-            "rows": len(rows),
-            "coverage": _round_or_none(len(rows) / float(days), 2),
-            "avg_sleep_hours": _round_or_none(
-                _mean(_seconds_to_hours(row.get("sleep_seconds")) for row in rows), 2
-            ),
-            "avg_resting_hr_bpm": _round_or_none(
-                _mean(row.get("resting_hr_bpm") for row in rows), 2
-            ),
-            "avg_weight_kg": _round_or_none(_mean(row.get("weight_kg") for row in rows), 2),
-            "avg_hrv_ms": _round_or_none(_mean(row.get("hrv_ms") for row in rows), 2),
-            "hrv_cv_pct": _round_or_none(_coefficient_of_variation(row.get("hrv_ms") for row in rows), 2),
-            "avg_fitness": _round_or_none(_mean(row.get("ctl") for row in rows), 2),
-            "avg_fatigue": _round_or_none(_mean(row.get("atl") for row in rows), 2),
-            "avg_form": _round_or_none(
-                _mean(_safe_subtract(row.get("ctl"), row.get("atl")) for row in rows), 2
-            ),
-            "avg_ramp_rate": _round_or_none(_mean(row.get("ramp_rate") for row in rows), 2),
-            "avg_ride_eftp_watts": _round_or_none(
-                _mean(row.get("ride_eftp_watts") for row in rows), 2
-            ),
-            "avg_ride_eftp_wkg": _round_or_none(
-                _mean(
-                    _watts_per_kg(
-                        row.get("ride_eftp_watts"),
-                        _first_non_null(row.get("weight_kg"), _latest_known_weight_from_rows(rows, row.get("metric_date"))),
-                    )
-                    for row in rows
+    rows_by_window = {days: _load_metrics_rows(connection, current_date, days) for days in windows.values()}
+    daily_90_rows = _load_metrics_rows(connection, current_date, 90)
+
+    trends = {
+        "sleep_hours": {
+            "3d": _window_stat(
+                rows_by_window[3],
+                3,
+                lambda row: _seconds_to_hours(row.get("sleep_seconds")),
+                digits=2,
+                delta_vs_prev_window=_delta_between_windows(
+                    rows_by_window[3],
+                    _load_previous_metrics_rows(connection, current_date, 3),
+                    lambda row: _seconds_to_hours(row.get("sleep_seconds")),
+                    digits=2,
                 ),
-                2,
-            ),
-            "avg_run_eftp": _round_or_none(_mean(row.get("run_eftp") for row in rows), 2),
-            "avg_run_eftp_wkg": _round_or_none(
-                _mean(
-                    _watts_per_kg(
-                        row.get("run_eftp"),
-                        _first_non_null(row.get("weight_kg"), _latest_known_weight_from_rows(rows, row.get("metric_date"))),
-                    )
-                    for row in rows
+                delta_vs_reference=_delta_vs_rows(
+                    rows_by_window[3],
+                    rows_by_window[28],
+                    lambda row: _seconds_to_hours(row.get("sleep_seconds")),
+                    digits=2,
                 ),
-                2,
+                delta_vs_reference_label="delta_vs_28d",
             ),
-            "subjective_averages": {
-                "motivation_score": _round_or_none(_mean(row.get("motivation_score") for row in rows), 2),
-                "mood_score": _round_or_none(_mean(row.get("mood_score") for row in rows), 2),
-            },
-        }
+            "7d": _window_stat(
+                rows_by_window[7],
+                7,
+                lambda row: _seconds_to_hours(row.get("sleep_seconds")),
+                digits=2,
+                delta_vs_reference=_delta_vs_rows(
+                    rows_by_window[7],
+                    rows_by_window[28],
+                    lambda row: _seconds_to_hours(row.get("sleep_seconds")),
+                    digits=2,
+                ),
+                delta_vs_reference_label="delta_vs_28d",
+            ),
+            "14d": _window_stat(
+                rows_by_window[14],
+                14,
+                lambda row: _seconds_to_hours(row.get("sleep_seconds")),
+                digits=2,
+                delta_vs_reference=_delta_vs_rows(
+                    rows_by_window[14],
+                    rows_by_window[28],
+                    lambda row: _seconds_to_hours(row.get("sleep_seconds")),
+                    digits=2,
+                ),
+                delta_vs_reference_label="delta_vs_28d",
+            ),
+            "28d": _window_stat(rows_by_window[28], 28, lambda row: _seconds_to_hours(row.get("sleep_seconds")), digits=2),
+        },
+        "hrv": {
+            "7d": _window_stat(
+                rows_by_window[7],
+                7,
+                lambda row: row.get("hrv_ms"),
+                digits=2,
+                delta_vs_reference=_delta_vs_rows(rows_by_window[7], rows_by_window[14], lambda row: row.get("hrv_ms"), digits=2),
+                delta_vs_reference_label="delta_vs_14d",
+                extra_fields={
+                    "delta_vs_90d": _delta_vs_rows(rows_by_window[7], daily_90_rows, lambda row: row.get("hrv_ms"), digits=2),
+                },
+            ),
+            "14d": _window_stat(
+                rows_by_window[14],
+                14,
+                lambda row: row.get("hrv_ms"),
+                digits=2,
+                extra_fields={
+                    "delta_vs_90d": _delta_vs_rows(rows_by_window[14], daily_90_rows, lambda row: row.get("hrv_ms"), digits=2),
+                },
+            ),
+        },
+        "rhr": {
+            "7d": _window_stat(
+                rows_by_window[7],
+                7,
+                lambda row: row.get("resting_hr_bpm"),
+                digits=2,
+                delta_vs_reference=_delta_vs_rows(rows_by_window[7], rows_by_window[14], lambda row: row.get("resting_hr_bpm"), digits=2),
+                delta_vs_reference_label="delta_vs_14d",
+                extra_fields={
+                    "delta_vs_90d": _delta_vs_rows(rows_by_window[7], daily_90_rows, lambda row: row.get("resting_hr_bpm"), digits=2),
+                },
+            ),
+            "14d": _window_stat(
+                rows_by_window[14],
+                14,
+                lambda row: row.get("resting_hr_bpm"),
+                digits=2,
+                extra_fields={
+                    "delta_vs_90d": _delta_vs_rows(rows_by_window[14], daily_90_rows, lambda row: row.get("resting_hr_bpm"), digits=2),
+                },
+            ),
+        },
+        "vo2max": {
+            "7d": _window_stat(
+                rows_by_window[7],
+                7,
+                lambda row: row.get("vo2max"),
+                digits=2,
+                delta_vs_reference=_delta_vs_rows(rows_by_window[7], rows_by_window[28], lambda row: row.get("vo2max"), digits=2),
+                delta_vs_reference_label="delta_vs_28d",
+                extra_fields={
+                    "delta_vs_90d": _delta_vs_rows(rows_by_window[7], daily_90_rows, lambda row: row.get("vo2max"), digits=2),
+                },
+            ),
+            "28d": _window_stat(
+                rows_by_window[28],
+                28,
+                lambda row: row.get("vo2max"),
+                digits=2,
+                extra_fields={
+                    "delta_vs_90d": _delta_vs_rows(rows_by_window[28], daily_90_rows, lambda row: row.get("vo2max"), digits=2),
+                },
+            ),
+        },
+        "form": {
+            "3d": _window_stat(
+                rows_by_window[3],
+                3,
+                lambda row: _safe_subtract(row.get("ctl"), row.get("atl")),
+                digits=2,
+                delta_vs_reference=_delta_vs_rows(rows_by_window[3], rows_by_window[7], lambda row: _safe_subtract(row.get("ctl"), row.get("atl")), digits=2),
+                delta_vs_reference_label="delta_vs_7d",
+                extra_fields={"zone_majority": _form_zone_majority(rows_by_window[3])},
+                include_sd=False,
+            ),
+            "7d": _window_stat(
+                rows_by_window[7],
+                7,
+                lambda row: _safe_subtract(row.get("ctl"), row.get("atl")),
+                digits=2,
+                extra_fields={"zone_majority": _form_zone_majority(rows_by_window[7])},
+                include_sd=False,
+            ),
+        },
+        "fatigue": {
+            "7d": _window_stat(
+                rows_by_window[7], 7, lambda row: row.get("atl"), digits=2,
+                delta_vs_reference=_delta_vs_rows(rows_by_window[7], rows_by_window[28], lambda row: row.get("atl"), digits=2),
+                delta_vs_reference_label="delta_vs_28d",
+            ),
+            "28d": _window_stat(rows_by_window[28], 28, lambda row: row.get("atl"), digits=2),
+        },
+        "fitness": {
+            "7d": _window_stat(
+                rows_by_window[7], 7, lambda row: row.get("ctl"), digits=2,
+                delta_vs_reference=_delta_vs_rows(rows_by_window[7], rows_by_window[28], lambda row: row.get("ctl"), digits=2),
+                delta_vs_reference_label="delta_vs_28d",
+                include_sd=False,
+            ),
+            "28d": _window_stat(rows_by_window[28], 28, lambda row: row.get("ctl"), digits=2, include_sd=False),
+        },
+        "weight_kg": {
+            "7d": _window_stat(
+                rows_by_window[7],
+                7,
+                lambda row: row.get("weight_kg"),
+                digits=2,
+                delta_vs_reference=_delta_vs_rows(rows_by_window[7], rows_by_window[28], lambda row: row.get("weight_kg"), digits=2),
+                delta_vs_reference_label="delta_vs_28d",
+                extra_fields={
+                    "delta_vs_90d": _delta_vs_rows(rows_by_window[7], daily_90_rows, lambda row: row.get("weight_kg"), digits=2),
+                },
+            ),
+            "28d": _window_stat(
+                rows_by_window[28],
+                28,
+                lambda row: row.get("weight_kg"),
+                digits=2,
+                extra_fields={
+                    "delta_vs_90d": _delta_vs_rows(rows_by_window[28], daily_90_rows, lambda row: row.get("weight_kg"), digits=2),
+                },
+            ),
+        },
+        "ride_eftp_watts": {
+            "7d": _window_stat(
+                rows_by_window[7],
+                7,
+                lambda row: row.get("ride_eftp_watts"),
+                digits=2,
+                delta_vs_reference=_delta_vs_rows(rows_by_window[7], rows_by_window[28], lambda row: row.get("ride_eftp_watts"), digits=2),
+                delta_vs_reference_label="delta_vs_28d",
+                extra_fields={
+                    "delta_vs_90d": _delta_vs_rows(rows_by_window[7], daily_90_rows, lambda row: row.get("ride_eftp_watts"), digits=2),
+                    "best": _round_or_none(_max_value(rows_by_window[7], lambda row: row.get("ride_eftp_watts")), 2),
+                },
+            ),
+            "28d": _window_stat(
+                rows_by_window[28],
+                28,
+                lambda row: row.get("ride_eftp_watts"),
+                digits=2,
+                extra_fields={
+                    "delta_vs_90d": _delta_vs_rows(rows_by_window[28], daily_90_rows, lambda row: row.get("ride_eftp_watts"), digits=2),
+                    "best": _round_or_none(_max_value(rows_by_window[28], lambda row: row.get("ride_eftp_watts")), 2),
+                },
+            ),
+        },
+        "ride_eftp_wkg": {
+            "7d": _window_stat(
+                rows_by_window[7],
+                7,
+                lambda row: _row_ride_eftp_wkg(row, rows_by_window[7]),
+                digits=2,
+                delta_vs_reference=_delta_vs_rows(rows_by_window[7], rows_by_window[28], lambda row: _row_ride_eftp_wkg(row, rows_by_window[7]), digits=2),
+                delta_vs_reference_label="delta_vs_28d",
+                extra_fields={
+                    "delta_vs_90d": _delta_vs_rows(rows_by_window[7], daily_90_rows, lambda row: _row_ride_eftp_wkg(row, rows_by_window[7]), digits=2),
+                    "best": _round_or_none(_max_value(rows_by_window[7], lambda row: _row_ride_eftp_wkg(row, rows_by_window[7])), 2),
+                },
+            ),
+            "28d": _window_stat(
+                rows_by_window[28],
+                28,
+                lambda row: _row_ride_eftp_wkg(row, rows_by_window[28]),
+                digits=2,
+                extra_fields={
+                    "delta_vs_90d": _delta_vs_rows(rows_by_window[28], daily_90_rows, lambda row: _row_ride_eftp_wkg(row, rows_by_window[28]), digits=2),
+                    "best": _round_or_none(_max_value(rows_by_window[28], lambda row: _row_ride_eftp_wkg(row, rows_by_window[28])), 2),
+                },
+            ),
+        },
+        "run_eftp": {
+            "7d": _window_stat(
+                rows_by_window[7],
+                7,
+                lambda row: row.get("run_eftp"),
+                digits=2,
+                delta_vs_reference=_delta_vs_rows(rows_by_window[7], rows_by_window[28], lambda row: row.get("run_eftp"), digits=2),
+                delta_vs_reference_label="delta_vs_28d",
+                extra_fields={
+                    "delta_vs_90d": _delta_vs_rows(rows_by_window[7], daily_90_rows, lambda row: row.get("run_eftp"), digits=2),
+                    "best": _round_or_none(_max_value(rows_by_window[7], lambda row: row.get("run_eftp")), 2),
+                },
+            ),
+            "28d": _window_stat(
+                rows_by_window[28],
+                28,
+                lambda row: row.get("run_eftp"),
+                digits=2,
+                extra_fields={
+                    "delta_vs_90d": _delta_vs_rows(rows_by_window[28], daily_90_rows, lambda row: row.get("run_eftp"), digits=2),
+                    "best": _round_or_none(_max_value(rows_by_window[28], lambda row: row.get("run_eftp")), 2),
+                },
+            ),
+        },
+        "run_eftp_wkg": {
+            "7d": _window_stat(
+                rows_by_window[7],
+                7,
+                lambda row: _row_run_eftp_wkg(row, rows_by_window[7]),
+                digits=2,
+                delta_vs_reference=_delta_vs_rows(rows_by_window[7], rows_by_window[28], lambda row: _row_run_eftp_wkg(row, rows_by_window[7]), digits=2),
+                delta_vs_reference_label="delta_vs_28d",
+                extra_fields={
+                    "delta_vs_90d": _delta_vs_rows(rows_by_window[7], daily_90_rows, lambda row: _row_run_eftp_wkg(row, rows_by_window[7]), digits=2),
+                    "best": _round_or_none(_max_value(rows_by_window[7], lambda row: _row_run_eftp_wkg(row, rows_by_window[7])), 2),
+                },
+            ),
+            "28d": _window_stat(
+                rows_by_window[28],
+                28,
+                lambda row: _row_run_eftp_wkg(row, rows_by_window[28]),
+                digits=2,
+                extra_fields={
+                    "delta_vs_90d": _delta_vs_rows(rows_by_window[28], daily_90_rows, lambda row: _row_run_eftp_wkg(row, rows_by_window[28]), digits=2),
+                    "best": _round_or_none(_max_value(rows_by_window[28], lambda row: _row_run_eftp_wkg(row, rows_by_window[28])), 2),
+                },
+            ),
+        },
+        "mood_score": {
+            "7d": _window_stat(
+                rows_by_window[7], 7, lambda row: row.get("mood_score"), digits=2,
+                delta_vs_reference=_delta_vs_rows(rows_by_window[7], rows_by_window[28], lambda row: row.get("mood_score"), digits=2),
+                delta_vs_reference_label="delta_vs_28d",
+            ),
+        },
+        "motivation_score": {
+            "7d": _window_stat(
+                rows_by_window[7], 7, lambda row: row.get("motivation_score"), digits=2,
+                delta_vs_reference=_delta_vs_rows(rows_by_window[7], rows_by_window[28], lambda row: row.get("motivation_score"), digits=2),
+                delta_vs_reference_label="delta_vs_28d",
+            ),
+        },
+    }
     return trends
 
 
@@ -554,88 +797,126 @@ def _build_long_term_baselines(
     connection: sqlite3.Connection,
     current_date: str,
 ) -> dict[str, Any]:
+    rows_90 = _load_metrics_rows(connection, current_date, 90)
+    rows_365 = _load_metrics_rows(connection, current_date, 365)
+    rows_30 = _load_metrics_rows(connection, current_date, 30)
     return {
-        "daily_90d": _daily_baseline(connection, current_date, 90),
-        "daily_365d": _daily_baseline(connection, current_date, 365),
-        "weekly_12w": _weekly_baseline_window(connection, current_date, 12),
-        "weekly_52w": _weekly_baseline_window(connection, current_date, 52),
-    }
-
-
-def _daily_baseline(
-    connection: sqlite3.Connection,
-    current_date: str,
-    days: int,
-) -> dict[str, Any]:
-    rows = _load_metrics_rows(connection, current_date, days)
-    return {
-        "days": days,
-        "rows": len(rows),
-        "coverage": _round_or_none(len(rows) / float(days), 2),
-        "sleep_hours_mean": _round_or_none(
-            _mean(_seconds_to_hours(row.get("sleep_seconds")) for row in rows), 2
-        ),
-        "weight_mean": _round_or_none(_mean(row.get("weight_kg") for row in rows), 2),
-        "resting_hr_mean": _round_or_none(_mean(row.get("resting_hr_bpm") for row in rows), 2),
-        "hrv_mean": _round_or_none(_mean(row.get("hrv_ms") for row in rows), 2),
-        "fitness_mean": _round_or_none(_mean(row.get("ctl") for row in rows), 2),
-        "fatigue_mean": _round_or_none(_mean(row.get("atl") for row in rows), 2),
-        "ride_eftp_mean": _round_or_none(_mean(row.get("ride_eftp_watts") for row in rows), 2),
-        "ride_eftp_wkg_mean": _round_or_none(
-            _mean(
-                _watts_per_kg(
-                    row.get("ride_eftp_watts"),
-                    _first_non_null(row.get("weight_kg"), _latest_known_weight_from_rows(rows, row.get("metric_date"))),
-                )
-                for row in rows
+        "sleep_hours": {
+            "90d": _baseline_stat(rows_90, 90, lambda row: _seconds_to_hours(row.get("sleep_seconds")), digits=2),
+            "365d": _baseline_stat(rows_365, 365, lambda row: _seconds_to_hours(row.get("sleep_seconds")), digits=2),
+        },
+        "hrv": {
+            "90d": _baseline_stat(rows_90, 90, lambda row: row.get("hrv_ms"), digits=2),
+            "365d": _baseline_stat(rows_365, 365, lambda row: row.get("hrv_ms"), digits=2),
+        },
+        "rhr": {
+            "90d": _baseline_stat(rows_90, 90, lambda row: row.get("resting_hr_bpm"), digits=2),
+            "365d": _baseline_stat(rows_365, 365, lambda row: row.get("resting_hr_bpm"), digits=2),
+        },
+        "vo2max": {
+            "90d": _baseline_stat(rows_90, 90, lambda row: row.get("vo2max"), digits=2),
+            "365d": _baseline_stat(rows_365, 365, lambda row: row.get("vo2max"), digits=2),
+        },
+        "form": {
+            "90d": _baseline_stat(rows_90, 90, lambda row: _safe_subtract(row.get("ctl"), row.get("atl")), digits=2),
+            "365d": _baseline_stat(rows_365, 365, lambda row: _safe_subtract(row.get("ctl"), row.get("atl")), digits=2),
+        },
+        "fatigue": {
+            "90d": _baseline_stat(rows_90, 90, lambda row: row.get("atl"), digits=2),
+            "365d": _baseline_stat(rows_365, 365, lambda row: row.get("atl"), digits=2),
+        },
+        "fitness": {
+            "90d": _baseline_stat(rows_90, 90, lambda row: row.get("ctl"), digits=2),
+            "365d": _baseline_stat(rows_365, 365, lambda row: row.get("ctl"), digits=2),
+        },
+        "weight_kg": {
+            "90d": _baseline_stat(rows_90, 90, lambda row: row.get("weight_kg"), digits=2),
+            "365d": _baseline_stat(rows_365, 365, lambda row: row.get("weight_kg"), digits=2),
+        },
+        "ride_eftp_watts": {
+            "90d": _baseline_stat(
+                rows_90,
+                90,
+                lambda row: row.get("ride_eftp_watts"),
+                digits=2,
+                extra_fields={
+                    "best_30d": _round_or_none(_max_value(rows_30, lambda row: row.get("ride_eftp_watts")), 2),
+                    "best_90d": _round_or_none(_max_value(rows_90, lambda row: row.get("ride_eftp_watts")), 2),
+                },
             ),
-            2,
-        ),
-        "run_eftp_mean": _round_or_none(_mean(row.get("run_eftp") for row in rows), 2),
-        "run_eftp_wkg_mean": _round_or_none(
-            _mean(
-                _watts_per_kg(
-                    row.get("run_eftp"),
-                    _first_non_null(row.get("weight_kg"), _latest_known_weight_from_rows(rows, row.get("metric_date"))),
-                )
-                for row in rows
+            "365d": _baseline_stat(
+                rows_365,
+                365,
+                lambda row: row.get("ride_eftp_watts"),
+                digits=2,
+                extra_fields={
+                    "best_365d": _round_or_none(_max_value(rows_365, lambda row: row.get("ride_eftp_watts")), 2),
+                },
             ),
-            2,
-        ),
-    }
-
-
-def _weekly_baseline_window(
-    connection: sqlite3.Connection,
-    current_date: str,
-    weeks: int,
-) -> dict[str, Any]:
-    oldest = (date.fromisoformat(current_date) - timedelta(days=(weeks * 7) - 1)).isoformat()
-    rows = connection.execute(
-        """
-        SELECT distance_meters, elevation_gain_meters, calories_kcal, training_load, session_rpe_load
-        FROM intervals_weekly_stats
-        WHERE week_start_date >= ?
-        ORDER BY week_start_date DESC
-        """,
-        (oldest,),
-    ).fetchall()
-    dict_rows = [dict(row) for row in rows]
-    return {
-        "weeks": weeks,
-        "rows": len(dict_rows),
-        "coverage": _round_or_none(len(dict_rows) / float(weeks), 2),
-        "distance_km_mean": _round_or_none(
-            _mean(_meters_to_km(row.get("distance_meters")) for row in dict_rows), 2
-        ),
-        "elevation_gain_m_mean": _round_or_none(
-            _mean(row.get("elevation_gain_meters") for row in dict_rows), 1
-        ),
-        "calories_kcal_mean": _round_or_none(_mean(row.get("calories_kcal") for row in dict_rows), 0),
-        "training_load_mean": _round_or_none(_mean(row.get("training_load") for row in dict_rows), 1),
-        "session_rpe_load_mean": _round_or_none(
-            _mean(row.get("session_rpe_load") for row in dict_rows), 1
-        ),
+        },
+        "ride_eftp_wkg": {
+            "90d": _baseline_stat(
+                rows_90,
+                90,
+                lambda row: _row_ride_eftp_wkg(row, rows_90),
+                digits=2,
+                extra_fields={
+                    "best_30d": _round_or_none(_max_value(rows_30, lambda row: _row_ride_eftp_wkg(row, rows_30)), 2),
+                    "best_90d": _round_or_none(_max_value(rows_90, lambda row: _row_ride_eftp_wkg(row, rows_90)), 2),
+                },
+            ),
+            "365d": _baseline_stat(
+                rows_365,
+                365,
+                lambda row: _row_ride_eftp_wkg(row, rows_365),
+                digits=2,
+                extra_fields={
+                    "best_365d": _round_or_none(_max_value(rows_365, lambda row: _row_ride_eftp_wkg(row, rows_365)), 2),
+                },
+            ),
+        },
+        "run_eftp": {
+            "90d": _baseline_stat(
+                rows_90,
+                90,
+                lambda row: row.get("run_eftp"),
+                digits=2,
+                extra_fields={
+                    "best_30d": _round_or_none(_max_value(rows_30, lambda row: row.get("run_eftp")), 2),
+                    "best_90d": _round_or_none(_max_value(rows_90, lambda row: row.get("run_eftp")), 2),
+                },
+            ),
+            "365d": _baseline_stat(
+                rows_365,
+                365,
+                lambda row: row.get("run_eftp"),
+                digits=2,
+                extra_fields={
+                    "best_365d": _round_or_none(_max_value(rows_365, lambda row: row.get("run_eftp")), 2),
+                },
+            ),
+        },
+        "run_eftp_wkg": {
+            "90d": _baseline_stat(
+                rows_90,
+                90,
+                lambda row: _row_run_eftp_wkg(row, rows_90),
+                digits=2,
+                extra_fields={
+                    "best_30d": _round_or_none(_max_value(rows_30, lambda row: _row_run_eftp_wkg(row, rows_30)), 2),
+                    "best_90d": _round_or_none(_max_value(rows_90, lambda row: _row_run_eftp_wkg(row, rows_90)), 2),
+                },
+            ),
+            "365d": _baseline_stat(
+                rows_365,
+                365,
+                lambda row: _row_run_eftp_wkg(row, rows_365),
+                digits=2,
+                extra_fields={
+                    "best_365d": _round_or_none(_max_value(rows_365, lambda row: _row_run_eftp_wkg(row, rows_365)), 2),
+                },
+            ),
+        },
     }
 
 
@@ -669,6 +950,26 @@ def _load_metrics_rows(
         ORDER BY metric_date DESC
         """,
         (current_date, oldest),
+    ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def _load_previous_metrics_rows(
+    connection: sqlite3.Connection,
+    current_date: str,
+    days: int,
+) -> list[dict[str, Any]]:
+    current_end = date.fromisoformat(current_date)
+    previous_end = current_end - timedelta(days=days)
+    previous_start = previous_end - timedelta(days=days - 1)
+    rows = connection.execute(
+        """
+        SELECT *
+        FROM athlete_metrics_daily
+        WHERE metric_date >= ? AND metric_date <= ?
+        ORDER BY metric_date DESC
+        """,
+        (previous_start.isoformat(), previous_end.isoformat()),
     ).fetchall()
     return [dict(row) for row in rows]
 
@@ -805,6 +1106,23 @@ def _mean(values: Iterable[Optional[float]]) -> Optional[float]:
     return sum(cleaned) / len(cleaned)
 
 
+def _stdev(values: Iterable[Optional[float]]) -> Optional[float]:
+    cleaned = [float(value) for value in values if value is not None]
+    if len(cleaned) < 2:
+        return None
+    mean_value = sum(cleaned) / len(cleaned)
+    variance = sum((value - mean_value) ** 2 for value in cleaned) / len(cleaned)
+    return variance ** 0.5
+
+
+def _max_value(rows: list[dict[str, Any]], value_fn: Any) -> Optional[float]:
+    cleaned = [value_fn(row) for row in rows]
+    cleaned = [float(value) for value in cleaned if value is not None]
+    if not cleaned:
+        return None
+    return max(cleaned)
+
+
 def _to_float_or_none(value: Any) -> Optional[float]:
     if value in (None, ""):
         return None
@@ -877,3 +1195,124 @@ def _prune_for_export(value: Any) -> Any:
         return pruned_list
 
     return value
+
+
+def _window_stat(
+    rows: list[dict[str, Any]],
+    window_days: int,
+    value_fn: Any,
+    digits: int,
+    delta_vs_prev_window: Optional[float] = None,
+    delta_vs_reference: Optional[float] = None,
+    delta_vs_reference_label: Optional[str] = None,
+    extra_fields: Optional[dict[str, Any]] = None,
+    include_sd: bool = True,
+) -> dict[str, Any]:
+    values = [value_fn(row) for row in rows]
+    avg = _mean(values)
+    item: dict[str, Any] = {
+        "avg": _round_or_none(avg, digits),
+        "n": len([value for value in values if value is not None]),
+        "coverage_pct": _coverage_pct(values, window_days),
+    }
+    if include_sd:
+        item["sd"] = _round_or_none(_stdev(values), digits)
+    if delta_vs_prev_window is not None:
+        item["delta_vs_prev_window"] = _round_or_none(delta_vs_prev_window, digits)
+    if delta_vs_reference is not None and delta_vs_reference_label is not None:
+        item[delta_vs_reference_label] = _round_or_none(delta_vs_reference, digits)
+    if extra_fields:
+        for key, value in extra_fields.items():
+            item[key] = value
+    return item
+
+
+def _baseline_stat(
+    rows: list[dict[str, Any]],
+    window_days: int,
+    value_fn: Any,
+    digits: int,
+    extra_fields: Optional[dict[str, Any]] = None,
+) -> dict[str, Any]:
+    values = [value_fn(row) for row in rows]
+    avg = _mean(values)
+    sd = _stdev(values)
+    item: dict[str, Any] = {
+        "avg": _round_or_none(avg, digits),
+        "sd": _round_or_none(sd, digits),
+        "typical_low": _round_or_none(avg - sd, digits) if avg is not None and sd is not None else None,
+        "typical_high": _round_or_none(avg + sd, digits) if avg is not None and sd is not None else None,
+        "n": len([value for value in values if value is not None]),
+        "coverage_pct": _coverage_pct(values, window_days),
+    }
+    if extra_fields:
+        for key, value in extra_fields.items():
+            item[key] = value
+    return item
+
+
+def _coverage_pct(values: list[Optional[float]], expected_count: int) -> int:
+    if expected_count <= 0:
+        return 0
+    present = len([value for value in values if value is not None])
+    return int(round((present / float(expected_count)) * 100.0))
+
+
+def _delta_vs_rows(
+    rows: list[dict[str, Any]],
+    reference_rows: list[dict[str, Any]],
+    value_fn: Any,
+    digits: int,
+) -> Optional[float]:
+    current_avg = _mean(value_fn(row) for row in rows)
+    reference_avg = _mean(value_fn(row) for row in reference_rows)
+    if current_avg is None or reference_avg is None:
+        return None
+    return round(current_avg - reference_avg, digits)
+
+
+def _delta_between_windows(
+    rows: list[dict[str, Any]],
+    previous_rows: list[dict[str, Any]],
+    value_fn: Any,
+    digits: int,
+) -> Optional[float]:
+    return _delta_vs_rows(rows, previous_rows, value_fn, digits)
+
+
+def _form_zone(value: Optional[float]) -> Optional[str]:
+    if value is None:
+        return None
+    if value < -30:
+        return "high risk"
+    if value < -10:
+        return "optimal"
+    if value <= 5:
+        return "grey"
+    if value <= 20:
+        return "fresh"
+    return "transition"
+
+
+def _form_zone_majority(rows: list[dict[str, Any]]) -> Optional[str]:
+    counts: dict[str, int] = {}
+    for row in rows:
+        zone = _form_zone(_safe_subtract(row.get("ctl"), row.get("atl")))
+        if zone is None:
+            continue
+        counts[zone] = counts.get(zone, 0) + 1
+    if not counts:
+        return None
+    return sorted(counts.items(), key=lambda item: (-item[1], item[0]))[0][0]
+
+
+def _row_weight(row: dict[str, Any], rows_context: list[dict[str, Any]]) -> Optional[float]:
+    return _first_non_null(row.get("weight_kg"), _latest_known_weight_from_rows(rows_context, row.get("metric_date")))
+
+
+def _row_ride_eftp_wkg(row: dict[str, Any], rows_context: list[dict[str, Any]]) -> Optional[float]:
+    return _watts_per_kg(row.get("ride_eftp_watts"), _row_weight(row, rows_context))
+
+
+def _row_run_eftp_wkg(row: dict[str, Any], rows_context: list[dict[str, Any]]) -> Optional[float]:
+    return _watts_per_kg(row.get("run_eftp"), _row_weight(row, rows_context))

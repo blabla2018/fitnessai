@@ -1,6 +1,7 @@
 # Metric Definitions
 
 - `HRV` = heart rate variability. Interpret it relative to the athlete's own baseline, not in isolation.
+- `VO2max` = modeled maximal aerobic capacity estimate. Treat it as a slow-moving aerobic-capacity proxy, not as a short-term readiness signal.
 - `RHR` = resting heart rate, baseline resting pulse.
 - `Fitness` = long-term modeled fitness from Intervals.
 - `Fatigue` = short-term modeled accumulated load / fatigue from Intervals.
@@ -14,6 +15,12 @@
 - `Ramp rate` = speed of change of modeled load / form over time. Interpret it in the context of recent weeks.
 - `ride_eftp_watts` and `run_eftp` = performance proxies for cycling and running.
 - `ride_eftp_wkg` and `run_eftp_wkg` = the same performance proxies normalized by body weight.
+- In compact trend and baseline blocks:
+  - `avg` = average value in that window
+  - `n` = number of actual data points used
+  - `coverage_pct` = how complete the window is
+  - `sd` = standard deviation inside that window
+  - `typical_low` / `typical_high` = athlete's normal corridor in that baseline window, currently derived as `avg ± sd`
 - `training_load` = weekly modeled load from Intervals.
 - `session_rpe_load` = subjective session load, usually something like `duration × RPE`.
 - `power_np` = normalized power or weighted average power proxy for a session.

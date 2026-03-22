@@ -22,6 +22,7 @@ CREATE TABLE IF NOT EXISTS athlete_metrics_daily (
     avg_sleeping_hr_bpm REAL,
     resting_hr_bpm REAL,
     hrv_ms REAL,
+    vo2max REAL,
     hrv_sdnn_ms REAL,
     readiness_score REAL,
     mood_score REAL,

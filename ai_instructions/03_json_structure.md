@@ -14,14 +14,56 @@ Use the JSON blocks like this:
 - Each day may include:
   - `day_of_week` = ISO weekday number inside the week, from `1` to `7`
   - `workouts_count` = number of workouts known for that day
-  - sleep / weight / HRV / RHR / mood / motivation / fitness / fatigue / form / ramp rate / FTP
+  - sleep / weight / HRV / VO2max / RHR / mood / motivation / fitness / fatigue / form / ramp rate / FTP
   - `notes` = day notes, each note object contains only `title` and `text`
   - `workouts` = workouts performed on that date
 - Each workout may include:
   - duration / power / NP / IF / FTP reference / HR / cadence / RPE / training load
   - `notes` = workout notes, each note object contains only `title` and `text`
-- `trends` = aggregated windows `3d / 7d / 14d / 28d` with averages and coverage.
-- `long_term_baselines` = long baseline windows `90d / 365d / 12w / 52w`.
+- `current_trends` = short operational trend blocks grouped by metric, not by time window. Each metric may contain only the windows that are useful for interpretation, for example `3d / 7d / 14d / 28d`.
+- Each `current_trends` metric window may include:
+  - `avg`
+  - `n`
+  - `coverage_pct`
+  - `sd`
+  - precomputed deltas such as `delta_vs_prev_window`, `delta_vs_28d`, `delta_vs_90d`
+  - metric-specific helper fields such as `best` for FTP proxies or `zone_majority` for `form`
+- Typical metric families in `current_trends` are:
+  - `sleep_hours`
+  - `hrv`
+  - `vo2max`
+  - `rhr`
+  - `form`
+  - `fatigue`
+  - `fitness`
+  - `weight_kg`
+  - `ride_eftp_watts`
+  - `ride_eftp_wkg`
+  - `run_eftp`
+  - `run_eftp_wkg`
+  - optional subjective metrics such as `mood_score` and `motivation_score`
+- `personal_baselines` = personal baseline blocks grouped by metric with only `90d` and `365d` windows.
+- Typical metric families in `personal_baselines` are:
+  - `sleep_hours`
+  - `hrv`
+  - `vo2max`
+  - `rhr`
+  - `form`
+  - `fatigue`
+  - `fitness`
+  - `weight_kg`
+  - `ride_eftp_watts`
+  - `ride_eftp_wkg`
+  - `run_eftp`
+  - `run_eftp_wkg`
+- Each long-term baseline window may include:
+  - `avg`
+  - `sd`
+  - `typical_low`
+  - `typical_high`
+  - `n`
+  - `coverage_pct`
+  - performance-specific fields such as `best_30d`, `best_90d`, `best_365d`
 
 If the structure is incomplete:
 

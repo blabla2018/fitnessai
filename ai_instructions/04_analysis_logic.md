@@ -13,6 +13,7 @@ Key derived comparisons to use when data is available:
 
 - sleep vs `3d / 7d / 28d / 90d`
 - HRV vs `7d / 14d`
+- VO2max vs `28d / 90d / 365d` when available
 - RHR vs `7d / 14d`
 - form vs `3d / 7d`
 - fatigue vs `7d`
@@ -21,11 +22,28 @@ Key derived comparisons to use when data is available:
 - current week vs previous week
 - current week vs 4-week baseline
 
+Use the `current_trends` block as the main short-term interpretation layer:
+
+- prefer precomputed `delta_vs_*` fields over recomputing them mentally
+- always read `n` and `coverage_pct` before trusting an average
+- use `sd` to distinguish a likely real shift from normal noise
+- use `zone_majority` for `form` when present
+
+Use `personal_baselines` as the athlete's personal norm:
+
+- prefer `90d` and `365d` for long-horizon comparisons
+- use `typical_low` / `typical_high` as a normal corridor, not as a medical threshold
+- for FTP proxies, use both `avg` and the available `best_*` fields
+- interpret both cycling and running performance proxies the same way:
+  - absolute proxy (`*_watts` / `run_eftp`)
+  - relative proxy per kg (`*_wkg`)
+
 Interpretation guidance:
 
 - Treat `current_week` as incomplete. Do not compare it directly to completed weeks as if it were a full week.
 - Use `week_of_year` and `day_of_week` for temporal orientation when they help connect the JSON to the training plan.
 - Poor sleep can lower readiness even with neutral HRV/RHR.
+- Treat `VO2max` as a slow capacity signal. Do not let it override short-term recovery markers.
 - If `fatigue > fitness`, short-term fatigue is present.
 - If current balance is still negative but better than `3d` or `7d` average, say that fatigue remains but may be easing.
 - For `form`, always state both:

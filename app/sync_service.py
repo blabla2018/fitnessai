@@ -275,6 +275,7 @@ def upsert_wellness_rows(
                 avg_sleeping_hr_bpm,
                 resting_hr_bpm,
                 hrv_ms,
+                vo2max,
                 hrv_sdnn_ms,
                 readiness_score,
                 mood_score,
@@ -303,6 +304,7 @@ def upsert_wellness_rows(
                 avg_sleeping_hr_bpm = excluded.avg_sleeping_hr_bpm,
                 resting_hr_bpm = excluded.resting_hr_bpm,
                 hrv_ms = excluded.hrv_ms,
+                vo2max = excluded.vo2max,
                 hrv_sdnn_ms = excluded.hrv_sdnn_ms,
                 readiness_score = excluded.readiness_score,
                 mood_score = excluded.mood_score,
@@ -331,6 +333,7 @@ def upsert_wellness_rows(
                 _to_float(row.get("avgSleepingHR")),
                 _to_float(row.get("restingHR")),
                 _to_float(row.get("hrv")),
+                _to_float(row.get("vo2max")),
                 _to_float(row.get("hrvSDNN")),
                 _to_float(row.get("readiness")),
                 _to_float(row.get("mood")),
@@ -712,7 +715,7 @@ def summarize_recent_data(
     daily_rows = connection.execute(
         """
         SELECT metric_date, weight_kg, sleep_seconds, sleep_score, sleep_quality_score,
-               avg_sleeping_hr_bpm, resting_hr_bpm, hrv_ms, hrv_sdnn_ms, readiness_score,
+               avg_sleeping_hr_bpm, resting_hr_bpm, hrv_ms, vo2max, hrv_sdnn_ms, readiness_score,
                mood_score, motivation_score,
                spo2_percent, respiration_rate, steps_count, ctl, atl, ramp_rate,
                ctl_load, atl_load, ride_eftp_watts, run_eftp, swim_eftp
