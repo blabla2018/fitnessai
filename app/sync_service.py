@@ -4,11 +4,12 @@ import sqlite3
 import json
 import time
 from datetime import date, datetime, timedelta, timezone
-from typing import Optional
+from typing import Callable, Optional
 
 from app.intervals_client import IntervalsClient
 
 INCREMENTAL_NOTES_LOOKBACK_DAYS = 7
+ProgressCallback = Optional[Callable[[str], None]]
 
 
 def start_sync_run(
@@ -63,10 +64,17 @@ def sync_intervals_days(
     connection: sqlite3.Connection,
     client: IntervalsClient,
     days: int,
+    progress_callback: ProgressCallback = None,
 ) -> dict:
+    started_at = time.perf_counter()
     today = datetime.now(timezone.utc).date()
     oldest = today - timedelta(days=days - 1)
     newest = today
+
+    _report_progress(
+        progress_callback,
+        f"Starting Intervals sync for {days} days: {oldest.isoformat()} -> {newest.isoformat()}",
+    )
 
     sync_run_id = start_sync_run(
         connection=connection,
@@ -77,31 +85,97 @@ def sync_intervals_days(
     )
 
     try:
+        _report_progress(progress_callback, "Fetching wellness rows...")
         fetch_started_at = time.perf_counter()
         wellness_rows = client.fetch_wellness(oldest=oldest, newest=newest)
         wellness_fetch_seconds = round(time.perf_counter() - fetch_started_at, 3)
+        _report_progress(
+            progress_callback,
+            f"Fetched wellness: {len(wellness_rows)} rows in {wellness_fetch_seconds:.3f}s",
+        )
 
         notes_oldest = today - timedelta(days=max(days, INCREMENTAL_NOTES_LOOKBACK_DAYS) - 1)
+        _report_progress(
+            progress_callback,
+            f"Fetching notes: {notes_oldest.isoformat()} -> {newest.isoformat()}...",
+        )
         fetch_started_at = time.perf_counter()
         note_rows = client.fetch_notes(oldest=notes_oldest, newest=newest)
         notes_fetch_seconds = round(time.perf_counter() - fetch_started_at, 3)
+        _report_progress(
+            progress_callback,
+            f"Fetched notes: {len(note_rows)} rows in {notes_fetch_seconds:.3f}s",
+        )
 
         summary_oldest = oldest
+        _report_progress(
+            progress_callback,
+            f"Fetching weekly summary: {summary_oldest.isoformat()} -> {newest.isoformat()}...",
+        )
         fetch_started_at = time.perf_counter()
         weekly_summary_rows = client.fetch_athlete_summary(start=summary_oldest, end=newest)
         weekly_summary_fetch_seconds = round(time.perf_counter() - fetch_started_at, 3)
+        _report_progress(
+            progress_callback,
+            f"Fetched weekly summary: {len(weekly_summary_rows)} rows in {weekly_summary_fetch_seconds:.3f}s",
+        )
 
         activities_oldest = oldest
+        _report_progress(
+            progress_callback,
+            f"Fetching activities: {activities_oldest.isoformat()} -> {newest.isoformat()}...",
+        )
         fetch_started_at = time.perf_counter()
         activity_rows = client.fetch_activities(oldest=activities_oldest, newest=newest)
         activities_fetch_seconds = round(time.perf_counter() - fetch_started_at, 3)
+        _report_progress(
+            progress_callback,
+            f"Fetched activities: {len(activity_rows)} rows in {activities_fetch_seconds:.3f}s",
+        )
 
+        _report_progress(progress_callback, "Upserting wellness rows...")
+        upsert_started_at = time.perf_counter()
         wellness_upserts = upsert_wellness_rows(connection, wellness_rows)
+        wellness_upsert_seconds = round(time.perf_counter() - upsert_started_at, 3)
+        _report_progress(
+            progress_callback,
+            f"Upserted wellness: {wellness_upserts} rows in {wellness_upsert_seconds:.3f}s",
+        )
+
+        _report_progress(progress_callback, "Upserting note rows...")
+        upsert_started_at = time.perf_counter()
         note_upserts = upsert_note_rows(connection, note_rows)
+        note_upsert_seconds = round(time.perf_counter() - upsert_started_at, 3)
+        _report_progress(
+            progress_callback,
+            f"Upserted notes: {note_upserts} rows in {note_upsert_seconds:.3f}s",
+        )
+
+        _report_progress(progress_callback, "Upserting weekly summary rows...")
+        upsert_started_at = time.perf_counter()
         weekly_summary_upserts = upsert_weekly_summary_rows(
             connection, client.athlete_id, weekly_summary_rows
         )
-        activity_upserts = upsert_activity_rows(connection, client, activity_rows)
+        weekly_summary_upsert_seconds = round(time.perf_counter() - upsert_started_at, 3)
+        _report_progress(
+            progress_callback,
+            "Upserted weekly summary: "
+            f"{weekly_summary_upserts} rows in {weekly_summary_upsert_seconds:.3f}s",
+        )
+
+        _report_progress(progress_callback, "Upserting activities and activity notes...")
+        upsert_started_at = time.perf_counter()
+        activity_upserts = upsert_activity_rows(
+            connection,
+            client,
+            activity_rows,
+            progress_callback=progress_callback,
+        )
+        activity_upsert_seconds = round(time.perf_counter() - upsert_started_at, 3)
+        _report_progress(
+            progress_callback,
+            f"Upserted activities: {activity_upserts} rows in {activity_upsert_seconds:.3f}s",
+        )
 
         finish_sync_run(
             connection=connection,
@@ -119,6 +193,11 @@ def sync_intervals_days(
                 + weekly_summary_upserts
                 + activity_upserts
             ),
+        )
+        total_elapsed_seconds = round(time.perf_counter() - started_at, 3)
+        _report_progress(
+            progress_callback,
+            f"Intervals sync finished successfully in {total_elapsed_seconds:.3f}s",
         )
         return {
             "days": days,
@@ -148,8 +227,23 @@ def sync_intervals_days(
                     3,
                 ),
             },
+            "upsert_timings_seconds": {
+                "wellness": wellness_upsert_seconds,
+                "notes": note_upsert_seconds,
+                "weekly_summary": weekly_summary_upsert_seconds,
+                "activities": activity_upsert_seconds,
+                "total_upsert": round(
+                    wellness_upsert_seconds
+                    + note_upsert_seconds
+                    + weekly_summary_upsert_seconds
+                    + activity_upsert_seconds,
+                    3,
+                ),
+            },
+            "total_elapsed_seconds": total_elapsed_seconds,
         }
     except Exception as exc:
+        _report_progress(progress_callback, f"Intervals sync failed: {exc}")
         finish_sync_run(
             connection=connection,
             sync_run_id=sync_run_id,
@@ -414,12 +508,20 @@ def upsert_activity_rows(
     connection: sqlite3.Connection,
     client: IntervalsClient,
     rows: list[dict],
+    progress_callback: ProgressCallback = None,
 ) -> int:
     upserts = 0
+    useful_seen = 0
 
-    for row in rows:
+    for index, row in enumerate(rows, start=1):
         if not _is_useful_activity(row):
             continue
+        useful_seen += 1
+        if useful_seen == 1 or useful_seen % 25 == 0 or useful_seen == len(rows):
+            _report_progress(
+                progress_callback,
+                f"Processing activities: useful {useful_seen} / raw {len(rows)} (row {index})",
+            )
 
         external_id = row.get("id")
         started_at_utc = row.get("start_date")
@@ -484,7 +586,7 @@ def upsert_activity_rows(
                 updated_at = CURRENT_TIMESTAMP
             """,
             (
-                "intervals",
+                _first_non_empty(row.get("source"), "intervals"),
                 str(external_id),
                 started_at_utc,
                 _end_time_from_activity(row),
@@ -522,7 +624,7 @@ def upsert_activity_rows(
             WHERE source = ? AND external_id = ?
             LIMIT 1
             """,
-            ("intervals", str(external_id)),
+            (_first_non_empty(row.get("source"), "intervals"), str(external_id)),
         ).fetchone()
         if workout_id:
             _upsert_workout_metric(
@@ -543,7 +645,7 @@ def upsert_activity_rows(
                 connection,
                 int(workout_id[0]),
                 "eftp",
-                _to_float(_first_non_empty(row.get("icu_pm_ftp_watts"), row.get("icu_ftp"))),
+                _to_float(_first_non_empty(row.get("icu_ftp"), row.get("icu_pm_ftp_watts"))),
                 "watts",
             )
             _upsert_workout_metric(
@@ -564,6 +666,11 @@ def upsert_activity_rows(
 
     connection.commit()
     return upserts
+
+
+def _report_progress(progress_callback: ProgressCallback, message: str) -> None:
+    if progress_callback is not None:
+        progress_callback(message)
 
 
 def _upsert_workout_metric(

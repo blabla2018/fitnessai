@@ -30,6 +30,15 @@
   - `2` = average / acceptable motivation
   - `3` = high motivation
   - `4` = extreme motivation
+- Key distinction:
+  - `motivation` = willingness to act, train, and tolerate load
+  - `mood` = emotional state / emotional tone
+- In short:
+  - `motivation` answers: `will I do it?`
+  - `mood` answers: `how do I feel emotionally?`
+- They overlap, but they are not the same signal:
+  - `motivation` is more behavior-oriented
+  - `mood` is more stress / emotional-state oriented
 
 Interpretation rules:
 
@@ -45,6 +54,12 @@ Interpretation rules:
 - Do not treat `ramp rate` as a standalone signal.
 - Do not over-interpret `mood` or `motivation` in isolation.
 - `mood` and `motivation` become much more useful when interpreted together with session `RPE`, `IF`, and execution quality.
+- `motivation` can drop with high fatigue, low energy availability, overreaching, or training monotony.
+- `mood` can drop with psychological stress, poor sleep, CNS strain, or broader life load.
 - Low `mood` / low `motivation` with high `RPE` at only moderate `IF` can support a fatigue or low-readiness interpretation.
 - Good `mood` / good `motivation` with controlled `RPE` at meaningful `IF` can support a positive readiness or good adaptation interpretation.
+- If `mood` is low but `motivation` is high, consider psychological or life stress first; the athlete may still be ready to train but emotionally strained.
+- If `mood` is good but `motivation` is low, consider accumulated physical fatigue, emerging burnout, or resistance to training despite acceptable emotional state.
+- If both `mood` and `motivation` are low, treat it as a stronger caution signal for overload, under-recovery, or broader stress.
+- If both `mood` and `motivation` are good, treat it as a supportive signal for readiness, but still verify it against sleep, HRV/RHR, and load.
 - Do not reduce the entire conclusion to one metric. Base conclusions on at least 2-3 aligned signals or clearly lower confidence.

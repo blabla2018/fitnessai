@@ -15,7 +15,7 @@ Designed for:
 - imports weekly notes and day notes
 - stores the data in a local SQLite database
 - builds compact metrics snapshots for AI analysis
-- exports a dated `metrics_YYYY-MM-DD.json` file for ChatGPT Project use
+- exports a dated `metrics_YYYY-MM-DD.json` file for AI analysis use
 
 ## Safety rule for Intervals
 
@@ -71,20 +71,20 @@ Intervals is currently used for daily metrics and fitness-state data only.
 - We also ingest Intervals `NOTES`, including weekly notes and day-specific notes.
 - We do not rely on Intervals activities as workout truth because many workouts are Strava-sourced and incomplete via the Intervals API.
 
-Export a dated metrics JSON for ChatGPT Project use:
+Export a dated metrics JSON for AI analysis use:
 
 ```bash
 python3 -m app.main export-metrics
 ```
 
-Recommended daily workflow:
+Recommended weekly workflow:
 
 ```bash
-python3 -m app.main daily-sync
+python3 -m app.main sync-last-week
 python3 -m app.main export-metrics
 ```
 
-`daily-sync` re-syncs the last 3 days, which is safer than syncing only 1 day because Intervals values and notes can settle or update slightly after the first import.
+`sync-last-week` re-syncs the last 7 days. This matches the weekly training cycle better than a 3-day window and is still small enough to keep incremental syncs fast and focused on recent changes.
 
 Under the hood the incremental sync currently does:
 
@@ -93,7 +93,7 @@ Under the hood the incremental sync currently does:
 - weekly summary sync for the last `N` days
 - activities sync for the last `N` days
 
-This keeps the daily sync focused on genuinely fresh data, while the long history stays in the local database after the initial backfill.
+This keeps the recurring sync focused on genuinely fresh data, while the long history stays in the local database after the initial backfill.
 
 First-time setup for a new user:
 
@@ -108,7 +108,7 @@ Why `365` on the first run:
 - it also backfills notes, weekly summaries, and activities for the same one-year range
 - this gives enough history for `90d / 365d` daily baselines and long weekly trend context
 
-After the initial backfill, switch to the normal daily workflow with `daily-sync`.
+After the initial backfill, switch to the normal recurring workflow with `sync-last-week`.
 
 This writes:
 

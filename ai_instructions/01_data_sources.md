@@ -13,5 +13,5 @@ Rules:
 - Do not mix multiple snapshot files unless the user explicitly asks for comparison.
 - If the JSON in the message conflicts with the file in Source, prefer the JSON from the message.
 - If you use a file from Source, explicitly say which file was selected.
-- Base physiological date = `current_snapshot.metric_date`.
+- Base physiological date = the latest day inside `current_week.days`.
 - Use note `local_date` as the content date for notes.

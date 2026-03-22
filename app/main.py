@@ -22,8 +22,8 @@ def build_parser() -> argparse.ArgumentParser:
     )
     sync_parser.add_argument("--days", type=int, default=7)
     subparsers.add_parser(
-        "daily-sync",
-        help="Run the recommended daily read-only Intervals sync for the last 3 days",
+        "sync-last-week",
+        help="Run the recommended read-only Intervals sync for the last 7 days",
     )
 
     show_recent_parser = subparsers.add_parser(
@@ -33,7 +33,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     export_parser = subparsers.add_parser(
         "export-metrics",
-        help="Export a dated metrics JSON file for ChatGPT Project use",
+        help="Export a dated metrics JSON file for AI analysis use",
     )
     export_parser.add_argument(
         "--output-dir",
@@ -76,6 +76,7 @@ def command_sync_intervals(days: int) -> None:
             connection=connection,
             client=client,
             days=days,
+            progress_callback=lambda message: print(message, flush=True),
         )
 
     print(json.dumps(summary, ensure_ascii=False, indent=2))
@@ -94,7 +95,7 @@ def command_export_metrics(output_dir: str) -> None:
         snapshot = build_snapshot(connection)
 
     output_dir_path = Path(output_dir)
-    metric_date = snapshot["current_snapshot"]["metric_date"]
+    metric_date = snapshot["current_week"]["days"][-1]["date"]
     output_json_path = output_dir_path / f"metrics_{metric_date}.json"
     export_metrics_file(snapshot, output_json_path)
     print(f"Metrics JSON saved to: {output_json_path}")
@@ -110,8 +111,8 @@ def main() -> None:
         command_show_config()
     elif args.command == "sync-intervals":
         command_sync_intervals(args.days)
-    elif args.command == "daily-sync":
-        command_sync_intervals(3)
+    elif args.command == "sync-last-week":
+        command_sync_intervals(7)
     elif args.command == "show-recent-data":
         command_show_recent_data(args.days)
     elif args.command == "export-metrics":

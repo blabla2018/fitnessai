@@ -1,8 +1,8 @@
-# ChatGPT Project Package
+# AI Instructions Package
 
 This folder contains a split version of the long analysis prompt.
 
-Recommended usage in a ChatGPT Project:
+Recommended usage in an AI workspace or project:
 
 1. Put `INSTRUCTIONS.md` into the project instructions field.
 2. Add the other `.md` files to the project Source.
