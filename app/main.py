@@ -10,6 +10,8 @@ from app.intervals_client import IntervalsClient
 from app.snapshot_builder import build_snapshot, export_metrics_file
 from app.sync_service import summarize_recent_data, sync_intervals_days
 
+INTERVALS_REQUEST_PAUSE_SECONDS = 0.5
+
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Fitness AI local app")
@@ -63,12 +65,15 @@ def command_show_config() -> None:
 
 
 def command_sync_intervals(days: int) -> None:
+    if days <= 0:
+        raise ValueError("--days must be greater than 0.")
+
     settings = get_settings()
     client = IntervalsClient(
         base_url=settings.intervals_base_url,
         athlete_id=settings.intervals_athlete_id,
         api_key=settings.intervals_api_key,
-        request_pause_seconds=0.5,
+        request_pause_seconds=INTERVALS_REQUEST_PAUSE_SECONDS,
     )
 
     with connect_db(settings.database_path) as connection:

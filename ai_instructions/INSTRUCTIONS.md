@@ -22,7 +22,9 @@ Use these Source files during analysis:
 - `01_data_sources.md`
 - `02_metric_definitions.md`
 - `03_json_structure.md`
+- `03b_json_schema.md`
 - `04_analysis_logic.md`
+- `04b_confidence_rules.md`
 - `05_output_format.md`
 - `training_plan.md`
 

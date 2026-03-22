@@ -7,9 +7,13 @@ import io
 import json
 import time
 from datetime import date
+from http import HTTPStatus
 from typing import Optional
 from urllib.parse import urlencode
+from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
+
+INTERVALS_USER_AGENT = "fitnessai/0.1 read-only sync"
 
 
 @dataclass(frozen=True)
@@ -103,10 +107,34 @@ class IntervalsClient:
             headers={
                 "Authorization": f"Basic {auth_header}",
                 "Accept": "application/json, text/csv;q=0.9",
-                "User-Agent": "fitnessai/0.1 read-only sync",
+                "User-Agent": INTERVALS_USER_AGENT,
             },
             method="GET",
         )
 
-        with urlopen(request, timeout=30) as response:
-            return response.read().decode("utf-8")
+        try:
+            with urlopen(request, timeout=30) as response:
+                return response.read().decode("utf-8")
+        except HTTPError as exc:
+            raise RuntimeError(self._format_http_error(exc)) from exc
+        except URLError as exc:
+            reason = getattr(exc, "reason", exc)
+            raise RuntimeError(f"Failed to reach Intervals API: {reason}") from exc
+
+    def _format_http_error(self, error: HTTPError) -> str:
+        messages = {
+            HTTPStatus.UNAUTHORIZED: "Intervals API rejected the credentials. Check INTERVALS_API_KEY.",
+            HTTPStatus.FORBIDDEN: "Intervals API refused access to this resource.",
+            HTTPStatus.NOT_FOUND: "Intervals API endpoint or resource was not found.",
+            HTTPStatus.TOO_MANY_REQUESTS: "Intervals API rate limit hit. Try again in a moment.",
+            HTTPStatus.INTERNAL_SERVER_ERROR: "Intervals API returned an internal server error.",
+            HTTPStatus.SERVICE_UNAVAILABLE: "Intervals API is temporarily unavailable.",
+        }
+        try:
+            status = HTTPStatus(error.code)
+        except ValueError:
+            return f"Intervals API request failed with HTTP {error.code}."
+        return messages.get(
+            status,
+            f"Intervals API request failed with HTTP {status.value} {status.phrase}.",
+        )

@@ -279,6 +279,9 @@ def upsert_wellness_rows(
                 hrv_sdnn_ms,
                 readiness_score,
                 mood_score,
+                fatigue_score,
+                soreness_score,
+                stress_score,
                 motivation_score,
                 spo2_percent,
                 respiration_rate,
@@ -295,7 +298,7 @@ def upsert_wellness_rows(
                 raw_json,
                 updated_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
             ON CONFLICT(metric_date) DO UPDATE SET
                 weight_kg = excluded.weight_kg,
                 sleep_seconds = excluded.sleep_seconds,
@@ -308,6 +311,9 @@ def upsert_wellness_rows(
                 hrv_sdnn_ms = excluded.hrv_sdnn_ms,
                 readiness_score = excluded.readiness_score,
                 mood_score = excluded.mood_score,
+                fatigue_score = excluded.fatigue_score,
+                soreness_score = excluded.soreness_score,
+                stress_score = excluded.stress_score,
                 motivation_score = excluded.motivation_score,
                 spo2_percent = excluded.spo2_percent,
                 respiration_rate = excluded.respiration_rate,
@@ -337,6 +343,9 @@ def upsert_wellness_rows(
                 _to_float(row.get("hrvSDNN")),
                 _to_float(row.get("readiness")),
                 _to_float(row.get("mood")),
+                _to_float(row.get("fatigue")),
+                _to_float(row.get("soreness")),
+                _to_float(row.get("stress")),
                 _to_float(row.get("motivation")),
                 _to_float(row.get("spO2")),
                 _to_float(row.get("respiration")),
