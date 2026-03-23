@@ -14,11 +14,23 @@ Rules:
 
 ## Top-Level Blocks
 
+- `snapshot_version`: string, required
 - `current_week`: object, required
 - `weekly_detailed_summary`: array of week objects, required
 - `weekly_history_summary`: array of week summary objects, required
 - `current_trends`: object, required
 - `personal_baselines`: object, required
+- `decision_inputs`: object, required
+- `decision_flags`: array of strings, required, may be empty
+- `reason_codes`: array of strings, required, may be empty
+- `contradictions`: array of strings, required, may be empty
+- `decision_support`: object, required
+- `recovery_signals`: object, required
+- `plan_adherence`: object, required
+- `load_action_detail`: object, required
+- `decision_debug`: object, required
+- `recommended_load_action`: string, required
+- `confidence_precalc`: string, required
 
 ## Week Object
 
@@ -244,3 +256,253 @@ Aggregation rules:
   - computed by this pipeline from daily stored data
 - `personal_baselines`:
   - computed by this pipeline from daily stored data
+- `decision_inputs`, `decision_flags`, `reason_codes`, `contradictions`, `recommended_load_action`, `confidence_precalc`:
+  - computed by this pipeline from `current_trends`, `personal_baselines`, and current week context
+
+## Decision Inputs
+
+`decision_inputs` is a discrete interpretation block.
+
+Fields:
+
+- `readiness_state`: string, required
+- `fatigue_state`: string, required
+- `fitness_state`: string, required
+- `capacity_state`: string, required
+- `form_zone`: string | null, optional
+- `sleep_state`: string, required
+- `weight_state`: string, required
+- `subjective_state`: string, required
+- `process_state`: string, required
+- `data_quality_state`: string, required
+
+### Allowed Values
+
+`readiness_state`:
+
+- `ready`
+- `stable`
+- `reduced`
+- `poor`
+- `insufficient_data`
+
+`fatigue_state`:
+
+- `low`
+- `normal`
+- `elevated`
+- `high`
+- `insufficient_data`
+
+`fitness_state`:
+
+- `rising`
+- `stable`
+- `falling`
+- `insufficient_data`
+
+`capacity_state`:
+
+- `improving`
+- `stable`
+- `drifting_down`
+- `clearly_down`
+- `insufficient_data`
+
+`form_zone`:
+
+- `high risk`
+- `optimal`
+- `grey`
+- `fresh`
+- `transition`
+
+`sleep_state`:
+
+- `above_baseline`
+- `near_baseline`
+- `below_baseline`
+- `well_below_baseline`
+- `insufficient_data`
+
+`weight_state`:
+
+- `stable`
+- `drifting_up`
+- `drifting_down`
+- `insufficient_data`
+
+`subjective_state`:
+
+- `supportive`
+- `mixed`
+- `strained`
+- `insufficient_data`
+
+`process_state`:
+
+- `process_working_well`
+- `process_working_but_constrained`
+- `process_mixed_unstable`
+- `process_showing_overload`
+- `insufficient_data`
+
+`data_quality_state`:
+
+- `strong`
+- `limited`
+- `weak`
+
+`confidence_precalc`:
+
+- `high`
+- `medium`
+- `low`
+
+## Decision Flags, Reason Codes, Contradictions
+
+- `decision_flags`: discrete fact flags interpreted by backend rules
+- `reason_codes`: compact evidence codes intended for explanation and evaluation
+- `contradictions`: important disagreement markers between signals
+
+Each item is a string code such as:
+
+- `sleep_7d_below_28d`
+- `fatigue_gt_fitness`
+- `form_in_optimal_zone`
+- `stable_capacity_with_reduced_readiness`
+- `poor_sleep_but_hrv_neutral`
+
+## Decision Support
+
+`decision_support` is the numeric support block for the decision layer.
+
+Typical fields:
+
+- `sleep_7d_avg`
+- `sleep_delta_vs_28d`
+- `sleep_delta_vs_90d`
+- `sleep_7d_coverage_pct`
+- `hrv_7d_avg`
+- `hrv_delta_vs_14d`
+- `hrv_delta_vs_90d`
+- `rhr_7d_avg`
+- `rhr_delta_vs_14d`
+- `rhr_delta_vs_90d`
+- `fatigue_7d_avg`
+- `fatigue_delta_vs_28d`
+- `fitness_7d_avg`
+- `fitness_delta_vs_28d`
+- `fatigue_current`
+- `fitness_current`
+- `form_current`
+- `form_3d_avg`
+- `form_7d_avg`
+- `form_zone`
+- `capacity_metric`
+- `capacity_metric_group`
+- `capacity_source_priority`
+- `capacity_7d_avg`
+- `capacity_delta_vs_28d`
+- `capacity_delta_vs_90d`
+- `capacity_7d_best`
+- `weight_7d_avg`
+- `weight_delta_vs_28d`
+- `weight_delta_vs_90d`
+- `weight_7d_coverage_pct`
+- `mood_7d_avg`
+- `motivation_7d_avg`
+- `subjective_7d_coverage_pct`
+
+## Recovery Signals
+
+`recovery_signals` contains structured recovery-warning inputs.
+
+Typical fields:
+
+- `sleep_below_baseline`: boolean
+- `sleep_well_below_baseline`: boolean
+- `hrv_suppressed`: boolean
+- `rhr_elevated`: boolean
+- `fatigue_gt_fitness`: boolean
+- `fatigue_above_recent_norm`: boolean
+- `subjective_low`: boolean | null
+- `form_deeply_negative`: boolean | null
+- `high_rpe_at_moderate_if`: boolean | null
+- `count_total`: integer
+- `count_strong`: integer
+
+## Plan Adherence
+
+`plan_adherence` describes how actual training matched the intended weekly template.
+
+Current fields:
+
+- `week_type_expected`
+- `expected_key_sessions`
+- `completed_key_sessions`
+- `missed_key_sessions`
+- `substituted_key_sessions`
+- `bike_sessions_completed`
+- `strength_sessions_completed`
+- `long_z2_completed`
+- `adherence_score`
+- `adherence_state`
+
+`adherence_state`:
+
+- `high`
+- `acceptable`
+- `low`
+- `insufficient_data`
+
+## Load Action Detail
+
+`load_action_detail` provides operational detail for the discrete load decision.
+
+Fields:
+
+- `primary`
+- `reduce_volume_pct`
+- `reduce_intensity_pct`
+- `avoid_session_types`
+- `prefer_session_types`
+- `lift_restriction`
+- `session_complexity`
+- `action_rationale_short`
+
+`lift_restriction`:
+
+- `none`
+- `keep_submaximal`
+- `avoid_heavy_lower`
+- `skip_strength`
+
+`session_complexity`:
+
+- `normal`
+- `simplify`
+- `recovery_only`
+
+## Decision Debug
+
+`decision_debug` is a compact debug block for tracing the engine decision.
+
+Fields:
+
+- `load_decision_trigger`
+- `load_decision_overridden_by`
+- `confidence_downgraded_by_contradictions`
+- `sleep_state_rule`
+- `subjective_state_rule`
+- `recovery_day_rule`
+
+## Recommended Load Action
+
+`recommended_load_action` must be exactly one of:
+
+- `keep`
+- `keep_but_simplify`
+- `reduce_20_30`
+- `recovery_day`
+- `deload_week`

@@ -51,6 +51,22 @@ Interpretation guidance:
   - the current Intervals zone: `high risk`, `optimal`, `grey`, `fresh`, or `transition`
 - If FTP is stable but recovery is worse, separate `capacity` from `readiness`.
 - For FTP, prefer verdict labels such as: `improving`, `stable`, `drifting down`, `clearly down`, `insufficient data`.
+- Do not automatically treat `stable` as a positive outcome for every metric.
+- Interpret metrics according to their goal direction:
+  - `progress metrics` such as `FTP`, `VO2max`, and performance proxies are usually expected to improve over time
+  - `recovery metrics` such as sleep, HRV, RHR, fatigue, and form are context-dependent and should not be treated as "the higher the better"
+  - `body composition metrics` such as weight depend on the athlete's stated goal
+- For `progress metrics`:
+  - `improving` = positive
+  - `stable` = capacity preserved, but not automatic progress
+  - `drifting down` / `clearly down` = concerning
+- For `progress metrics`, use the training goal context from `training_plan.md`:
+  - if the athlete is trying to improve a metric, `stable` usually means `preserved, but no clear progress yet`
+  - only place a progress metric under `Что идет хорошо` when there is actual evidence of improvement, or when preserving it during fatigue / recovery is itself the relevant success
+- Separate these interpretations explicitly when helpful:
+  - `capacity improving`
+  - `capacity preserved`
+  - `capacity not progressing toward goal`
 - For the weekly process, prefer labels such as: `process is working well`, `mostly working but constrained`, `mixed / unstable`, `signs of overload`, `insufficient data`.
 - If notes and metrics disagree, mention both signals and lower confidence.
 - Explicitly call out contradictions when they matter.

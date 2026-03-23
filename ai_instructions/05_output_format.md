@@ -33,9 +33,21 @@ When mentioning `Form`, also include the Intervals zone label:
 
 3-5 коротких пунктов.
 
+Rules for this section:
+
+- do not put a `stable` progress metric here by default
+- progress metrics include `FTP`, `VO2max`, and other performance proxies
+- include a progress metric here only if there is clear improvement, or if preserving it during fatigue / recovery is itself the meaningful positive
+- if a progress metric is only stable while the athlete's stated goal is to increase it, describe it as neutral context or as a constraint, not as a success by itself
+
 ## 4. ⚠️ Что настораживает
 
 3-5 коротких пунктов.
+
+Rules for this section:
+
+- if the training goal is growth in a progress metric and that metric is flat for now, it can belong here as `нет явного роста` or similar, especially when fatigue is already elevated
+- do not overstate `stable` into `falling` unless the data really supports decline
 
 ## 5. 📈 Анализ изменений
 

@@ -26,6 +26,7 @@ Use these Source files during analysis:
 - `04_analysis_logic.md`
 - `04b_confidence_rules.md`
 - `05_output_format.md`
+- `06_decision_rules.md`
 - `training_plan.md`
 
 Always answer in Russian.

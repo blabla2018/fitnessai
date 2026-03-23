@@ -77,14 +77,12 @@ def command_sync_intervals(days: int) -> None:
     )
 
     with connect_db(settings.database_path) as connection:
-        summary = sync_intervals_days(
+        sync_intervals_days(
             connection=connection,
             client=client,
             days=days,
             progress_callback=lambda message: print(message, flush=True),
         )
-
-    print(json.dumps(summary, ensure_ascii=False, indent=2))
 
 
 def command_show_recent_data(days: int) -> None:

@@ -64,6 +64,37 @@ Use the JSON blocks like this:
   - `n`
   - `coverage_pct`
   - performance-specific fields such as `best_30d`, `best_90d`, `best_365d`
+- `snapshot_version` = version tag for the exported interpretation contract
+- `decision_inputs` = discrete decision states derived from trends and baselines
+- `decision_flags` = compact boolean-style fact flags already interpreted by backend logic
+- `reason_codes` = primary reason codes that explain why the decision state was chosen
+- `contradictions` = explicit disagreement markers between important signals
+- `decision_support` = compact numeric support facts for the decision layer
+- `recovery_signals` = structured recovery-warning block with boolean inputs and counts
+- `plan_adherence` = explicit process-vs-plan block when available
+- `load_action_detail` = operational detail for how the recommended load change should be applied
+- `decision_debug` = compact debug metadata for why the engine selected its load decision and confidence
+- `recommended_load_action` = discrete load decision chosen from a fixed rubric
+- `confidence_precalc` = backend-calculated decision confidence
+
+`decision_inputs` is the main structured state for downstream reasoning. Typical fields:
+
+- `readiness_state`
+- `fatigue_state`
+- `fitness_state`
+- `capacity_state`
+- `form_zone`
+- `sleep_state`
+- `weight_state`
+- `subjective_state`
+- `process_state`
+- `data_quality_state`
+
+The decision layer should be treated as the preferred interpretation layer above raw metrics:
+
+- `current_trends` and `personal_baselines` remain the numeric source of truth
+- `decision_inputs` and related blocks are the discrete interpretation layer
+- the final LLM answer should explain this state, not re-derive it freely
 
 If the structure is incomplete:
 
