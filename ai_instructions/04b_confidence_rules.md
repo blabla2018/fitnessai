@@ -27,7 +27,7 @@ Default `n` thresholds:
 ### Sleep
 
 - Sleep trends are usually reliable when `coverage_pct >= 85`.
-- One very bad night can matter clinically for readiness, but do not over-generalize from a single point to the whole process.
+- One very bad night can matter meaningfully for readiness, but do not over-generalize from a single point to the whole process.
 
 ### HRV
 

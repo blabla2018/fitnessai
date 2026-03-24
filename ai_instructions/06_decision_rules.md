@@ -4,11 +4,14 @@ This file defines the discrete decision layer that sits between raw metrics and 
 
 The goal is to reduce free-form interpretation and make the final answer depend on explicit states, flags, and reason codes.
 
+These rules are app-level interpretation heuristics layered on top of Intervals data. They are not official Intervals thresholds unless explicitly stated.
+
 ## Main Principle
 
 - Prefer backend-derived states over open-ended interpretation.
 - The AI should explain and prioritize the decision state, not recompute it from scratch.
 - When multiple signals disagree, keep the contradiction explicit and lower confidence.
+- Match the level of structure to the user's intent: status, review, explanation, source-trace, prescription, forecast, or direct answer.
 
 ## Required Decision Outputs
 
@@ -119,7 +122,7 @@ Suggested thresholds:
 
 - `insufficient_data` when recent subjective coverage is below about `50%`
 - `mixed` when coverage is usable and `mood` / `motivation` conflict is visible
-- `strained` when both recent subjective signals are clearly low
+- `strained` when both recent subjective signals are clearly poor
 
 ### Process State
 
@@ -149,6 +152,7 @@ Decision guidance:
 - `keep_but_simplify` when physiology is mostly neutral but subjective cost or contradiction risk is meaningful
 - `keep` when recovery, form, and execution context are aligned and no major warning is present
 - `deload_week` when repeated overload signs persist at the weekly-process level rather than only in today's state
+- repeated expensive sessions support `keep_but_simplify`, `reduce_20_30`, or `deload_week` depending on how persistent and how aligned the overload signals are
 
 ## Signal Priority
 
@@ -167,6 +171,163 @@ Priority rules:
 - Stable or improving capacity must not override poor recovery.
 - Weight trend is supporting context, not a primary load signal.
 - VO2max is slow context, not a same-day decision driver.
+- Expensive execution can reduce confidence in an apparently neutral or positive capacity read.
+
+## Explanation and Source-Trace Rules
+
+For metric explanation questions:
+
+- define the metric first, interpret second
+- distinguish session-level metrics from state-level metrics and from long-term capacity metrics
+- if two metrics look similar, explain the difference in role, timescale, and source rather than saying they are simply duplicates
+
+For source-trace questions:
+
+- identify the exact block and field when possible
+- state whether the value is raw, aggregated, baseline-derived, or backend-derived
+- if the answer used a trend average instead of a daily raw point, say that explicitly
+- if the value comes from a proxy or derived layer, do not describe it as a directly measured fact
+
+## Prescription Rules
+
+When the user asks what to do next:
+
+- prefer the training plan context and current state over a generic motivational answer
+- prefer target ranges over false precision
+- prefer `% FTP` framing when the plan is written that way, and translate to watts as a convenience layer when a practical reference is available
+- if short-term readiness is reduced, simplify before you increase
+- if the basis is uncertain, say so and give a conservative range
+
+## Forecast Rules
+
+When the user asks for recovery time or near-term outlook:
+
+- provide a bounded estimate, not a promise
+- state the confidence and the main uncertainty
+- base the estimate on aligned short-term signals first: sleep, HRV/RHR, fatigue, form, recent session cost
+- do not imply day-level precision that the data cannot support
+- when evidence is weak, answer with scenarios rather than a single timeline
+
+## Note-Derived Pattern Rules
+
+Workout notes may be aggregated into reusable athlete-specific rules, but only cautiously.
+
+Human-in-the-loop policy:
+
+- Treat `workout notes` as free-form raw observations, not as a stored rules database.
+- Treat note-derived patterns from workout notes as provisional candidate rules.
+- Treat `week notes` as the curated memory layer because the athlete manually decides what to carry forward there.
+- Do not behave as if a candidate rule is saved or persistent unless it is actually present in `week notes` or strongly repeated again across later workouts with objective support.
+
+Extraction rules:
+
+- treat workout notes as free text, not as a reliable structured form
+- only when the text clearly states them, use soft note-level elements such as:
+  - state or recovery context
+  - intended work
+  - observed response
+  - outcome
+  - explicit insight
+- treat these elements as supportive interpretation, not as parsed raw truth
+
+Pattern-building rules:
+
+- if similar patterns appear `>= 2-3` times, they may be generalized
+- generalize narrow numeric points into practical ranges
+- prefer rule format: `condition -> outcome -> recommendation`
+- do not generate a rule from a single outlier workout unless objective metrics strongly support it
+- when such a rule is not already present in `week notes`, label it as a candidate for manual carry-over rather than as established athlete memory
+
+Conflict handling:
+
+- if note-derived patterns contradict each other, keep both
+- mark them as `unstable` or `needs more data`
+- lower confidence in the resulting recommendation
+- if `week notes` disagree with fresh workout-note candidates, keep both visible and prefer `week notes` as the memory layer unless objective metrics clearly argue otherwise
+
+Confidence guide:
+
+- `1` occurrence = `low`
+- `2-3` occurrences = `medium`
+- `4+` occurrences = `high`
+
+Use note-derived rules mainly for:
+
+- athlete-specific power guidance under different fatigue states
+- identifying what work is controllable vs too costly
+- strengthening recommendations with repeated personal evidence
+
+Use curated week-note rules for:
+
+- carrying athlete-specific learning across weeks
+- stabilizing recommendations when the same pattern keeps reappearing
+- explaining why a similar recommendation is being repeated again
+
+## Expensive Session Rules
+
+A workout may be treated as `expensive` when 2 or more of the following align:
+
+- high `decoupling_pct` for an intended steady / endurance session
+- `hr_load` materially above `power_load`
+- high effective exertion at only moderate / easy `if`
+  Use direct `rpe` when present, or estimate it from `session_rpe_load / duration_min` when direct `rpe` is missing.
+- high `variability_index` for an intended steady / controlled session
+- poor or weak `feel` as supporting context together with another cost signal
+- notes indicating unusual struggle, unusually high heart rate, or inability to hold target structure
+
+Guidance:
+
+- treat `materially above` as both `>= 10 load units` and `>= 15%` higher
+- do not treat `session_rpe_load` as a standalone absolute trigger without duration context
+- do not treat poor or weak `feel` alone as enough to call a session expensive
+- one expensive session is a caution signal, not automatic overload
+- repeated expensive sessions support `process_working_but_constrained` or `process_showing_overload`
+- an expensive long ride or expensive key workout can justify simplifying the next key session
+- if execution cost is repeatedly high while capacity is only stable, do not describe the process as clearly working well
+
+## Workout Review Verdicts
+
+When the user asks about training usefulness, block quality, or one workout, produce explicit review verdicts in natural language.
+
+Use these categories:
+
+- `полезна`
+- `полезна, но дорогая`
+- `нейтральна`
+- `несвоевременна`
+- `не попала в цель`
+
+Interpret them this way:
+
+- `полезна` = likely delivered the intended stimulus at acceptable cost for the current state
+- `полезна, но дорогая` = likely delivered the intended stimulus, but cost was materially high
+- `нейтральна` = added some context or maintenance value, but not a strong targeted stimulus
+- `несвоевременна` = the session may have been good in itself, but the athlete's short-term state suggests it came at the wrong time
+- `не попала в цель` = the session execution or structure did not match the likely intended purpose
+
+Practical rules:
+
+- Do not treat `execution_verdict_precalc` as identical to usefulness. Execution quality and usefulness are related, but not the same.
+- A workout can be well executed yet still be `несвоевременна`.
+- A workout can be `полезна, но дорогая` when the stimulus was achieved but cost was clearly elevated.
+- A commute-like or incidental session is usually `нейтральна` unless the user explicitly asks to treat it as a meaningful training stimulus.
+- For strength sessions, judge usefulness from `rpe`, `session_rpe_load`, `feel`, notes, and next-day interaction, not from cycling execution metrics.
+
+Timeliness guidance:
+
+- `своевременна` when readiness is at least stable enough for the session type and the cost is controlled
+- `погранично своевременна` when readiness is reduced but the session remained manageable
+- `несвоевременна` when readiness was reduced or poor and the session also looked expensive, overly stochastic, or unusually costly
+
+## Workout-Type-Specific Decision Use
+
+Use execution signals in context:
+
+- for steady / endurance sessions, prioritize `decoupling_pct`, `efficiency_factor`, `variability_index`, `hr_load` vs `power_load`, and zone leakage above intended intensity
+- for threshold / sweet-spot sessions, prioritize target-zone time, `rpe`, `feel`, and whether output matched intended structure at acceptable cost
+- for VO2 / HIIT sessions, prioritize `z5+` time, `joules_above_ftp`, `max_wbal_depletion`, `variability_index`, `rpe`, and `feel`
+
+Do not use `joules_above_ftp`, `max_wbal_depletion`, or `decoupling_pct` in isolation without considering session type.
 
 ## Contradiction Handling
 
@@ -177,7 +338,10 @@ Treat these as important contradictions:
 - `good_mood_but_low_motivation`
 - `high_motivation_but_low_mood`
 - `stable_capacity_but_reduced_readiness`
+- `good_subjective_but_elevated_load_signals`
 - `good_subjective_but_high_rpe_for_moderate_if`
+
+Use the mood / motivation contradiction codes only when the 7-day averages show a clear split, not when one side is merely average.
 
 When contradictions exist:
 
@@ -217,6 +381,11 @@ Typical examples:
 - `ride_eftp_7d_down_vs_90d`
 - `weight_7d_up_vs_28d`
 - `subjective_state_strained`
+- `expensive_execution_14d_present`
+- `repeated_expensive_execution`
+- `high_rpe_at_moderate_if`
+- `hr_load_above_power_load`
+- `session_cost_high_for_output`
 
 Rules:
 

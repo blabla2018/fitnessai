@@ -26,7 +26,7 @@ Rules:
 - `contradictions`: array of strings, required, may be empty
 - `decision_support`: object, required
 - `recovery_signals`: object, required
-- `plan_adherence`: object, required
+- `plan_adherence`: object, optional
 - `load_action_detail`: object, required
 - `decision_debug`: object, required
 - `recommended_load_action`: string, required
@@ -121,7 +121,22 @@ Fields:
 - `hr_max`: number | null, optional, bpm
 - `cadence_avg`: number | null, optional, rpm
 - `rpe`: number | null, optional
+- `session_rpe_load`: number | null, optional, subjective load units for that workout, usually `RPE × duration_min`
 - `training_load`: number | null, optional
+- `feel`: number | null, optional, same-session subjective state / feel score from Intervals
+- `power_load`: number | null, optional, power-derived load units for that workout
+- `hr_load`: number | null, optional, heart-rate-derived load units for that workout
+- `decoupling_pct`: number | null, optional, Pw:HR drift percent for the session
+- `efficiency_factor`: number | null, optional, power-to-HR efficiency proxy for the session
+- `variability_index`: number | null, optional, pacing variability proxy for the session
+- `joules_above_ftp`: number | null, optional, work above FTP in joules
+- `max_wbal_depletion`: number | null, optional, maximum modeled W'bal depletion value reported by Intervals
+- `power_zone_times`: object | null, optional, seconds spent in power zones keyed like `z1..z7` and optionally `ss`
+- `hr_zone_times`: object | null, optional, seconds spent in heart-rate zones keyed like `z1..z7`
+- `session_class`: string | null, optional, backend-derived workout intent / class such as `endurance`, `sweet_spot`, `threshold`, `vo2`, `hiit`, `strength_lower`, `strength_upper`, `commute`, or `mixed`
+- `is_commute_like`: boolean | null, optional, marks transport-like or incidental riding context
+- `upper_zone_leakage_pct`: number | null, optional, percent of session time above easy-zone intent, mainly meaningful for endurance sessions
+- `execution_verdict_precalc`: string | null, optional, backend-derived summary such as `controlled`, `expensive`, `failed`, or `strong_but_costly`
 - `notes`: array of note objects, required, may be empty
 - `sport_type_raw`: string | null, optional
 - `source_device`: string | null, optional
@@ -130,6 +145,15 @@ Semantics:
 
 - `if` is relative intensity, not load by itself.
 - `ftp_reference` is the FTP value that the session-level intensity context was based on.
+- `rpe` and `session_rpe_load` are different:
+  - `rpe` = how hard the session felt
+  - `session_rpe_load` = total subjective cost of the session
+- `decoupling_pct` and `efficiency_factor` are most meaningful when compared across similar steady sessions, not as universal standalone thresholds.
+- `power_zone_times` and `hr_zone_times` are session-structure fields. Use them to understand where the load came from, not just how large the total load was.
+- `session_class` is the preferred primary workout-intent hint when present.
+- `is_commute_like = true` means the workout should usually be treated as supporting load context, not as a key adaptation session by default.
+- `upper_zone_leakage_pct` is mainly for endurance sessions and helps detect whether an `easy` ride drifted too high.
+- `execution_verdict_precalc` is a backend summary of session execution quality. Prefer it over inventing a completely new session verdict from scratch when the field is present.
 - Workout `notes` are post-session notes or extracted activity messages.
 
 ## Note Object
@@ -143,6 +167,22 @@ Fields:
 
 - `title`: string | null, optional
 - `text`: string | null, optional
+
+Semantics:
+
+- Notes at week, day, and workout level must always be read during analysis when present.
+- Notes are contextual and explanatory signals, not primary objective measurements.
+- Notes must not override objective metrics such as power, heart rate, fatigue, form, or modeled load by themselves.
+- `workout.notes[]` are usually free-form raw observations about one session.
+- `week.notes[]` may contain manually curated summaries, rules, or reminders that the athlete chose to preserve.
+- Notes are especially useful for:
+  - explaining anomalies in metrics or execution
+  - identifying subjective strain, discomfort, failure, or unusual circumstances
+  - extracting repeated patterns across multiple entries
+- Prefer structured notes when available, especially sequences like `state -> work -> response -> result -> insight`.
+- Repeated workout-note patterns may be generalized into temporary week-level or review-level rules during analysis, but these derived rules are not raw schema fields unless explicitly added elsewhere.
+- Candidate rules inferred from `workout.notes[]` are provisional until they are manually reflected in `week.notes[]` or repeatedly supported again by later notes plus metrics.
+- `week.notes[]` should usually be treated as the higher-trust memory layer than one-off workout notes, but even curated notes still must not override clear objective metrics by themselves.
 
 ## Current Trends
 
@@ -370,7 +410,11 @@ Each item is a string code such as:
 - `sleep_7d_below_28d`
 - `fatigue_gt_fitness`
 - `form_in_optimal_zone`
+- `expensive_execution_14d_present`
+- `repeated_expensive_execution`
 - `stable_capacity_with_reduced_readiness`
+- `good_subjective_but_elevated_load_signals`
+- `good_subjective_but_high_rpe_for_moderate_if`
 - `poor_sleep_but_hrv_neutral`
 
 ## Decision Support
@@ -413,6 +457,12 @@ Typical fields:
 - `mood_7d_avg`
 - `motivation_7d_avg`
 - `subjective_7d_coverage_pct`
+- `last_execution_session_expensive`
+- `last_execution_session_type`
+- `last_execution_session_decoupling_pct`
+- `last_execution_session_if`
+- `last_execution_session_rpe`
+- `last_execution_session_feel`
 
 ## Recovery Signals
 
@@ -435,6 +485,8 @@ Typical fields:
 ## Plan Adherence
 
 `plan_adherence` describes how actual training matched the intended weekly template.
+
+This block is optional and should be omitted unless the backend has an explicit plan source and real adherence logic. Do not infer adherence from a missing block.
 
 Current fields:
 

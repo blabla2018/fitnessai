@@ -26,7 +26,7 @@ def build_snapshot(connection: sqlite3.Connection) -> dict[str, Any]:
     current_date = current["metric_date"]
     current_week_start = _week_start_date(current_date)
     snapshot = {
-        "snapshot_version": "v3",
+        "snapshot_version": "v4",
         "current_week": _build_current_week(connection, current_date, current_week_start),
         "weekly_detailed_summary": _build_weeks(
             connection, current_date, current_week_start, RECENT_DETAILED_WEEKS
@@ -469,6 +469,20 @@ def _build_workout_object(items: list[dict[str, Any]]) -> Optional[dict[str, Any
         *[item.get("workout_notes") for item in items],
         *[raw.get("description") for raw in raws],
     )
+    session_rpe_load = _first_non_null(*[raw.get("session_rpe") for raw in raws])
+    feel = _first_non_null(*[raw.get("feel") for raw in raws])
+    power_load = _first_non_null(*[raw.get("power_load") for raw in raws])
+    hr_load = _first_non_null(*[raw.get("hr_load") for raw in raws])
+    decoupling = _first_non_null(*[raw.get("decoupling") for raw in raws])
+    efficiency_factor = _first_non_null(*[raw.get("icu_efficiency_factor") for raw in raws])
+    variability_index = _first_non_null(*[raw.get("icu_variability_index") for raw in raws])
+    joules_above_ftp = _first_non_null(*[raw.get("icu_joules_above_ftp") for raw in raws])
+    max_wbal_depletion = _first_non_null(*[raw.get("icu_max_wbal_depletion") for raw in raws])
+    power_zone_times = _first_non_null(*[_normalize_power_zone_times(raw.get("icu_zone_times")) for raw in raws])
+    hr_zone_times = _first_non_null(*[_normalize_hr_zone_times(raw.get("icu_hr_zone_times")) for raw in raws])
+    commute_like = _is_commute_like(title, sport_type, raws)
+    session_class = _session_class(sport_type, title, power_zone_times, intensity_factor, commute_like)
+    upper_zone_leakage_pct = _upper_zone_leakage_pct(power_zone_times) if session_class == "endurance" else None
 
     if not any(
         value is not None
@@ -488,7 +502,21 @@ def _build_workout_object(items: list[dict[str, Any]]) -> Optional[dict[str, Any
         "hr_max": _round_or_none(_to_float_or_none(hr_max), 0),
         "cadence_avg": _round_or_none(_to_float_or_none(cadence_avg), 0),
         "rpe": _round_or_none(_to_float_or_none(rpe), 1),
+        "session_rpe_load": _round_or_none(_to_float_or_none(session_rpe_load), 0),
         "training_load": _round_or_none(_to_float_or_none(training_load), 1),
+        "feel": _round_or_none(_to_float_or_none(feel), 0),
+        "power_load": _round_or_none(_to_float_or_none(power_load), 1),
+        "hr_load": _round_or_none(_to_float_or_none(hr_load), 1),
+        "decoupling_pct": _round_or_none(_to_float_or_none(decoupling), 2),
+        "efficiency_factor": _round_or_none(_to_float_or_none(efficiency_factor), 3),
+        "variability_index": _round_or_none(_to_float_or_none(variability_index), 3),
+        "joules_above_ftp": _round_or_none(_to_float_or_none(joules_above_ftp), 0),
+        "max_wbal_depletion": _round_or_none(_to_float_or_none(max_wbal_depletion), 0),
+        "power_zone_times": power_zone_times,
+        "hr_zone_times": hr_zone_times,
+        "session_class": session_class,
+        "is_commute_like": commute_like,
+        "upper_zone_leakage_pct": _round_or_none(upper_zone_leakage_pct, 1),
         "notes": _workout_notes_array(workout_note),
         "sport_type_raw": sport_type,
         "source_device": _first_non_null(
@@ -496,6 +524,7 @@ def _build_workout_object(items: list[dict[str, Any]]) -> Optional[dict[str, Any
             *[raw.get("device_name") for raw in raws],
         ),
     }
+    workout["execution_verdict_precalc"] = _execution_verdict_precalc(workout)
     return workout
 
 
@@ -925,28 +954,30 @@ def _build_long_term_baselines(
 def _build_decision_layer(snapshot: dict[str, Any]) -> dict[str, Any]:
     decision_inputs = _build_decision_inputs(snapshot)
     decision_support = _build_decision_support(snapshot)
-    recovery_signals = _build_recovery_signals(snapshot, decision_inputs)
+    recovery_signals = _build_recovery_signals(snapshot, decision_inputs, decision_support)
     contradictions = _build_contradictions(snapshot, decision_inputs)
     decision_flags = _build_decision_flags(decision_inputs, recovery_signals, contradictions, decision_support)
     reason_codes = _build_reason_codes(decision_inputs, decision_support, recovery_signals, contradictions)
-    recommended_load_action = _recommended_load_action(decision_inputs, contradictions, recovery_signals)
+    recommended_load_action = _recommended_load_action(decision_inputs, contradictions, recovery_signals, decision_support)
     load_action_detail = _build_load_action_detail(recommended_load_action)
     plan_adherence = _build_plan_adherence(snapshot)
     confidence_precalc = _decision_confidence(decision_inputs, contradictions)
     decision_debug = _build_decision_debug(decision_inputs, contradictions, recovery_signals, confidence_precalc)
-    return {
+    result = {
         "decision_inputs": decision_inputs,
         "decision_flags": decision_flags,
         "reason_codes": reason_codes,
         "contradictions": contradictions,
         "decision_support": decision_support,
         "recovery_signals": recovery_signals,
-        "plan_adherence": plan_adherence,
         "load_action_detail": load_action_detail,
         "decision_debug": decision_debug,
         "recommended_load_action": recommended_load_action,
         "confidence_precalc": confidence_precalc,
     }
+    if plan_adherence is not None:
+        result["plan_adherence"] = plan_adherence
+    return result
 
 
 def _build_decision_inputs(snapshot: dict[str, Any]) -> dict[str, Any]:
@@ -976,6 +1007,13 @@ def _build_decision_inputs(snapshot: dict[str, Any]) -> dict[str, Any]:
 def _build_decision_support(snapshot: dict[str, Any]) -> dict[str, Any]:
     current_day = ((snapshot.get("current_week") or {}).get("days") or [{}])[-1]
     capacity_metric = _capacity_metric_name(snapshot)
+    recent_workouts = _recent_workouts(snapshot, lookback_days=14)
+    execution_workouts = [item for item in recent_workouts if _workout_is_execution_eligible(item)]
+    workouts_with_execution = [item for item in execution_workouts if _workout_has_execution_metrics(item)]
+    expensive_workouts = [item for item in recent_workouts if _workout_is_expensive(item)]
+    current_week_workouts = _recent_workouts(snapshot, current_week_only=True)
+    last_workout = execution_workouts[0] if execution_workouts else None
+    key_workout = _select_key_workout(snapshot)
     return {
         "sleep_7d_avg": _trend_avg(snapshot, "sleep_hours", "7d"),
         "sleep_delta_vs_28d": _trend_numeric(snapshot, "sleep_hours", "7d", "delta_vs_28d"),
@@ -1016,10 +1054,32 @@ def _build_decision_support(snapshot: dict[str, Any]) -> dict[str, Any]:
             _trend_int(snapshot, "mood_score", "7d", "coverage_pct") or 0,
             _trend_int(snapshot, "motivation_score", "7d", "coverage_pct") or 0,
         ) or None,
+        "recent_workouts_with_execution_metrics": len(workouts_with_execution),
+        "expensive_sessions_14d": len(expensive_workouts),
+        "steady_sessions_high_decoupling_14d": len([item for item in execution_workouts if _workout_has_high_decoupling(item)]),
+        "hr_load_above_power_load_sessions_14d": len([item for item in execution_workouts if _workout_hr_load_above_power_load(item)]),
+        "high_cost_sessions_14d": len([item for item in execution_workouts if _workout_cost_high_for_output(item)]),
+        "expensive_sessions_current_week": len([item for item in current_week_workouts if _workout_is_expensive(item)]),
+        "last_execution_session_expensive": _workout_is_expensive(last_workout) if last_workout is not None else None,
+        "last_execution_session_type": (last_workout or {}).get("type"),
+        "last_execution_session_decoupling_pct": _to_float_or_none((last_workout or {}).get("decoupling_pct")),
+        "last_execution_session_if": _to_float_or_none((last_workout or {}).get("if")),
+        "last_execution_session_rpe": _to_float_or_none((last_workout or {}).get("rpe")),
+        "last_execution_session_feel": _to_float_or_none((last_workout or {}).get("feel")),
+        "key_workout_date": (key_workout or {}).get("date"),
+        "key_workout_name": (key_workout or {}).get("name"),
+        "key_workout_type": (key_workout or {}).get("type"),
+        "key_workout_session_class": (key_workout or {}).get("session_class"),
+        "key_workout_execution_verdict": (key_workout or {}).get("execution_verdict_precalc"),
     }
 
 
-def _build_recovery_signals(snapshot: dict[str, Any], decision_inputs: dict[str, Any]) -> dict[str, Any]:
+def _build_recovery_signals(
+    snapshot: dict[str, Any],
+    decision_inputs: dict[str, Any],
+    decision_support: dict[str, Any],
+) -> dict[str, Any]:
+    expensive_sessions_14d = _to_float_or_none(decision_support.get("expensive_sessions_14d"))
     signals = {
         "sleep_below_baseline": decision_inputs["sleep_state"] in {"below_baseline", "well_below_baseline"},
         "sleep_well_below_baseline": decision_inputs["sleep_state"] == "well_below_baseline",
@@ -1030,7 +1090,10 @@ def _build_recovery_signals(snapshot: dict[str, Any], decision_inputs: dict[str,
         "subjective_low": decision_inputs["subjective_state"] == "strained" if decision_inputs["subjective_state"] != "insufficient_data" else None,
         "form_deeply_negative": decision_inputs["form_zone"] == "high risk" if decision_inputs["form_zone"] is not None else None,
         "high_rpe_at_moderate_if": _high_rpe_at_moderate_if(snapshot),
+        "recent_expensive_execution": _latest_workout_expensive(snapshot),
+        "repeated_expensive_execution": expensive_sessions_14d is not None and expensive_sessions_14d >= 2,
     }
+    expensive_execution_present = bool(signals["recent_expensive_execution"]) or bool(signals["repeated_expensive_execution"])
     total_signal_values = [
         signals["sleep_below_baseline"],
         signals["hrv_suppressed"],
@@ -1040,6 +1103,7 @@ def _build_recovery_signals(snapshot: dict[str, Any], decision_inputs: dict[str,
         signals["subjective_low"],
         signals["form_deeply_negative"],
         signals["high_rpe_at_moderate_if"],
+        expensive_execution_present,
     ]
     strong_signal_values = [
         signals["sleep_well_below_baseline"],
@@ -1047,6 +1111,7 @@ def _build_recovery_signals(snapshot: dict[str, Any], decision_inputs: dict[str,
         signals["high_rpe_at_moderate_if"],
         signals["hrv_suppressed"],
         signals["rhr_elevated"],
+        signals["repeated_expensive_execution"],
     ]
     signals["count_total"] = len([value for value in total_signal_values if value is True])
     signals["count_strong"] = len([value for value in strong_signal_values if value is True])
@@ -1066,14 +1131,18 @@ def _build_contradictions(snapshot: dict[str, Any], decision_inputs: dict[str, A
         contradictions.append("poor_sleep_but_hrv_neutral")
     if sleep_state in {"below_baseline", "well_below_baseline"} and not _rhr_elevated(snapshot):
         contradictions.append("poor_sleep_but_rhr_neutral")
-    if mood_avg is not None and motivation_avg is not None and mood_avg >= 3.0 and motivation_avg <= 2.5:
+    if mood_avg is not None and motivation_avg is not None and mood_avg <= 2.0 and motivation_avg >= 3.5:
         contradictions.append("good_mood_but_low_motivation")
-    if mood_avg is not None and motivation_avg is not None and mood_avg <= 2.0 and motivation_avg >= 3.0:
+    if mood_avg is not None and motivation_avg is not None and mood_avg >= 3.5 and motivation_avg <= 2.0:
         contradictions.append("high_motivation_but_low_mood")
     if capacity_state in {"stable", "improving"} and readiness_state in {"reduced", "poor"}:
         contradictions.append("stable_capacity_but_reduced_readiness")
     if subjective_state == "supportive" and decision_inputs["fatigue_state"] in {"elevated", "high"}:
         contradictions.append("good_subjective_but_elevated_load_signals")
+    if subjective_state == "supportive" and _high_rpe_at_moderate_if(snapshot):
+        contradictions.append("good_subjective_but_high_rpe_for_moderate_if")
+    if capacity_state in {"stable", "improving"} and _recent_expensive_sessions_count(snapshot) >= 2:
+        contradictions.append("stable_capacity_but_expensive_execution")
     return contradictions
 
 
@@ -1102,6 +1171,14 @@ def _build_decision_flags(
         flags.append(f"weight_{decision_inputs['weight_state']}")
     if decision_inputs["subjective_state"] in {"mixed", "strained"}:
         flags.append(f"subjective_{decision_inputs['subjective_state']}")
+    if recovery_signals.get("recent_expensive_execution"):
+        flags.append("recent_expensive_execution")
+    if recovery_signals.get("repeated_expensive_execution"):
+        flags.append("repeated_expensive_execution")
+    if (decision_support.get("hr_load_above_power_load_sessions_14d") or 0) >= 1:
+        flags.append("hr_load_above_power_load")
+    if (decision_support.get("high_cost_sessions_14d") or 0) >= 1:
+        flags.append("session_cost_high_for_output")
     if decision_support.get("capacity_metric_group"):
         flags.append(f"capacity_group_{decision_support['capacity_metric_group']}")
     if contradictions:
@@ -1146,8 +1223,20 @@ def _build_reason_codes(
         reasons.append("subjective_7d_strained")
     elif decision_inputs["subjective_state"] == "mixed":
         reasons.append("subjective_7d_mixed")
+    if (decision_support.get("expensive_sessions_14d") or 0) >= 1:
+        reasons.append("expensive_execution_14d_present")
+    if (decision_support.get("expensive_sessions_14d") or 0) >= 2:
+        reasons.append("repeated_expensive_execution")
+    if (decision_support.get("hr_load_above_power_load_sessions_14d") or 0) >= 1:
+        reasons.append("hr_load_above_power_load")
+    if (decision_support.get("high_cost_sessions_14d") or 0) >= 1:
+        reasons.append("session_cost_high_for_output")
+    if recovery_signals["high_rpe_at_moderate_if"]:
+        reasons.append("high_rpe_at_moderate_if")
     if "stable_capacity_but_reduced_readiness" in contradictions:
         reasons.append("stable_capacity_with_reduced_readiness")
+    if "stable_capacity_but_expensive_execution" in contradictions:
+        reasons.append("stable_capacity_with_expensive_execution")
     return reasons
 
 
@@ -1244,11 +1333,11 @@ def _subjective_state(snapshot: dict[str, Any]) -> str:
     motivation_avg = motivation.get("avg")
     if mood_avg is None or motivation_avg is None:
         return "insufficient_data"
-    if mood_avg >= 3.0 and motivation_avg >= 3.0:
+    if mood_avg <= 2.0 and motivation_avg <= 2.0:
         return "supportive"
-    if mood_avg <= 2.0 and motivation_avg <= 2.5:
+    if mood_avg >= 3.0 and motivation_avg >= 3.0:
         return "strained"
-    if (mood_avg <= 2.0 and motivation_avg >= 3.0) or (mood_avg >= 3.0 and motivation_avg <= 2.5):
+    if (mood_avg >= 3.0 and motivation_avg <= 2.0) or (mood_avg <= 2.0 and motivation_avg >= 3.0):
         return "mixed"
     return "mixed"
 
@@ -1318,6 +1407,7 @@ def _recommended_load_action(
     decision_inputs: dict[str, Any],
     contradictions: list[str],
     recovery_signals: dict[str, Any],
+    decision_support: dict[str, Any],
 ) -> str:
     readiness_state = decision_inputs["readiness_state"]
     fatigue_state = decision_inputs["fatigue_state"]
@@ -1327,12 +1417,16 @@ def _recommended_load_action(
 
     if process_state == "process_showing_overload" and form_zone == "high risk":
         return "deload_week"
+    if recovery_signals["repeated_expensive_execution"] and fatigue_state in {"elevated", "high"}:
+        return "reduce_20_30"
     if readiness_state == "poor" or recovery_signals["count_strong"] >= 2:
         return "recovery_day"
     if fatigue_state == "high" and recovery_signals["count_total"] >= 3:
         return "recovery_day"
     if readiness_state == "reduced" or fatigue_state in {"elevated", "high"}:
         return "reduce_20_30"
+    if recovery_signals["recent_expensive_execution"] or (decision_support.get("expensive_sessions_14d") or 0) >= 2:
+        return "keep_but_simplify"
     if subjective_state in {"mixed", "strained"} or contradictions:
         return "keep_but_simplify"
     return "keep"
@@ -1392,19 +1486,8 @@ def _build_load_action_detail(recommended_load_action: str) -> dict[str, Any]:
     return base
 
 
-def _build_plan_adherence(snapshot: dict[str, Any]) -> dict[str, Any]:
-    return {
-        "week_type_expected": "2_bike_2_strength_1_long_z2",
-        "expected_key_sessions": 3,
-        "completed_key_sessions": None,
-        "missed_key_sessions": None,
-        "substituted_key_sessions": None,
-        "bike_sessions_completed": None,
-        "strength_sessions_completed": None,
-        "long_z2_completed": None,
-        "adherence_score": None,
-        "adherence_state": "insufficient_data",
-    }
+def _build_plan_adherence(snapshot: dict[str, Any]) -> Optional[dict[str, Any]]:
+    return None
 
 
 def _build_decision_debug(
@@ -1415,6 +1498,10 @@ def _build_decision_debug(
 ) -> dict[str, Any]:
     if recovery_signals["count_strong"] >= 2:
         load_decision_trigger = "strong_recovery_signals"
+    elif recovery_signals.get("repeated_expensive_execution"):
+        load_decision_trigger = "repeated_expensive_execution"
+    elif recovery_signals.get("recent_expensive_execution"):
+        load_decision_trigger = "recent_expensive_execution"
     elif decision_inputs["fatigue_state"] in {"elevated", "high"} and decision_inputs["sleep_state"] in {"below_baseline", "well_below_baseline"}:
         load_decision_trigger = "fatigue_plus_sleep"
     elif contradictions:
@@ -1583,6 +1670,8 @@ def _high_rpe_at_moderate_if(snapshot: dict[str, Any]) -> Optional[bool]:
     seen = False
     for day in days:
         for workout in day.get("workouts") or []:
+            if not _workout_is_execution_eligible(workout):
+                continue
             intensity = _to_float_or_none(workout.get("if"))
             rpe = _to_float_or_none(workout.get("rpe"))
             if intensity is None or rpe is None:
@@ -1593,6 +1682,293 @@ def _high_rpe_at_moderate_if(snapshot: dict[str, Any]) -> Optional[bool]:
     if seen:
         return False
     return None
+
+
+def _recent_workouts(
+    snapshot: dict[str, Any],
+    lookback_days: int = 14,
+    current_week_only: bool = False,
+) -> list[dict[str, Any]]:
+    current_week = snapshot.get("current_week") or {}
+    current_days = current_week.get("days") or []
+    if not current_days:
+        return []
+    current_date = current_days[-1].get("date")
+    if not current_date:
+        return []
+    cutoff = date.fromisoformat(current_date) - timedelta(days=lookback_days - 1)
+
+    weeks: list[dict[str, Any]] = [current_week]
+    if not current_week_only:
+        weeks.extend(reversed((snapshot.get("weekly_detailed_summary") or [])))
+
+    items: list[dict[str, Any]] = []
+    for week in weeks:
+        for day in reversed(week.get("days") or []):
+            day_date = day.get("date")
+            if not day_date:
+                continue
+            day_obj = date.fromisoformat(day_date)
+            if day_obj < cutoff:
+                continue
+            for workout in reversed(day.get("workouts") or []):
+                items.append(
+                    {
+                        "date": day_date,
+                        "day_of_week": day.get("day_of_week"),
+                        **workout,
+                    }
+                )
+    items.sort(key=lambda item: (item.get("date") or "", item.get("duration_min") or 0), reverse=True)
+    return items
+
+
+def _select_key_workout(snapshot: dict[str, Any]) -> Optional[dict[str, Any]]:
+    workouts = _recent_workouts(snapshot, current_week_only=True)
+    if not workouts:
+        return None
+    preferred_workouts = [item for item in workouts if _workout_is_execution_eligible(item)]
+    if preferred_workouts:
+        workouts = preferred_workouts
+
+    def sort_key(item: dict[str, Any]) -> tuple[int, int, float, float]:
+        session_class = item.get("session_class")
+        planned_like_priority = 1 if session_class in {"vo2", "hiit", "threshold", "sweet_spot"} else 0
+        expensive_priority = 1 if _workout_is_expensive(item) else 0
+        endurance_priority = 1 if session_class == "endurance" else 0
+        duration = _to_float_or_none(item.get("duration_min")) or 0.0
+        training_load = _to_float_or_none(item.get("training_load")) or 0.0
+        return (planned_like_priority, expensive_priority, endurance_priority, max(duration, training_load))
+
+    return sorted(workouts, key=sort_key, reverse=True)[0]
+
+
+def _is_commute_like(title: Any, sport_type: Any, raws: list[dict[str, Any]]) -> bool:
+    title_text = str(title or "").lower()
+    sport_text = str(sport_type or "").lower()
+    if "commute" in title_text:
+        return True
+    if "commute" in sport_text:
+        return True
+    for raw in raws:
+        if raw.get("commute") is True:
+            return True
+        if str(raw.get("sub_type") or "").upper() == "COMMUTE":
+            return True
+    return False
+
+
+def _session_class(
+    sport_type: Any,
+    title: Any,
+    power_zone_times: Optional[dict[str, int]],
+    intensity_factor: Any,
+    commute_like: bool,
+) -> Optional[str]:
+    sport_text = str(sport_type or "")
+    sport_text_lower = sport_text.lower()
+    title_text = str(title or "").lower()
+    normalized_if = _normalize_intensity_factor(intensity_factor)
+    zone_times = power_zone_times or {}
+    z4 = int(zone_times.get("z4") or 0)
+    ss = int(zone_times.get("ss") or 0)
+    z5_plus = sum(int(zone_times.get(zone) or 0) for zone in ("z5", "z6", "z7"))
+
+    if commute_like:
+        return "commute"
+    if sport_text_lower in {"workout", "weighttraining"} or "weight training" in title_text:
+        if any(token in title_text for token in ("upper", "press", "pull", "push")):
+            return "strength_upper"
+        if any(token in title_text for token in ("leg", "squat", "deadlift", "lower")):
+            return "strength_lower"
+        return "strength"
+    if z5_plus >= 300:
+        return "vo2"
+    if z5_plus >= 120:
+        return "hiit"
+    if z4 >= 900:
+        return "threshold"
+    if ss >= 1200:
+        return "sweet_spot"
+    if normalized_if is not None and normalized_if <= 0.8:
+        return "endurance"
+    if zone_times:
+        return "mixed"
+    if "long" in title_text or "z2" in title_text or "endurance" in title_text:
+        return "endurance"
+    return _session_type_label(sport_text)
+
+
+def _upper_zone_leakage_pct(power_zone_times: Optional[dict[str, int]]) -> Optional[float]:
+    if not power_zone_times:
+        return None
+    total = sum(int(value or 0) for value in power_zone_times.values())
+    if total <= 0:
+        return None
+    upper = sum(int(power_zone_times.get(zone) or 0) for zone in ("z3", "z4", "z5", "z6", "z7"))
+    return (upper / float(total)) * 100.0
+
+
+def _workout_has_execution_metrics(workout: Optional[dict[str, Any]]) -> bool:
+    if not workout:
+        return False
+    fields = (
+        "decoupling_pct",
+        "efficiency_factor",
+        "variability_index",
+        "power_load",
+        "hr_load",
+        "session_rpe_load",
+        "feel",
+        "power_zone_times",
+        "hr_zone_times",
+        "joules_above_ftp",
+        "max_wbal_depletion",
+    )
+    return any(workout.get(field) is not None for field in fields)
+
+
+def _workout_is_execution_eligible(workout: Optional[dict[str, Any]]) -> bool:
+    if not workout:
+        return False
+    if workout.get("is_commute_like") is True:
+        return False
+    session_class = str(workout.get("session_class") or "")
+    return session_class not in {"commute", "strength", "strength_upper", "strength_lower"}
+
+
+def _workout_is_steady(workout: Optional[dict[str, Any]]) -> bool:
+    if not _workout_is_execution_eligible(workout):
+        return False
+    intensity = _to_float_or_none(workout.get("if"))
+    zone_times = workout.get("power_zone_times") or {}
+    z5_plus = sum(
+        int(zone_times.get(zone) or 0)
+        for zone in ("z5", "z6", "z7")
+    )
+    duration = _to_float_or_none(workout.get("duration_min")) or 0.0
+    if intensity is not None and intensity <= 0.8 and z5_plus <= 60:
+        return True
+    return duration >= 75.0 and z5_plus <= 120
+
+
+def _workout_has_high_decoupling(workout: Optional[dict[str, Any]]) -> bool:
+    if not _workout_is_steady(workout):
+        return False
+    decoupling = abs(_to_float_or_none((workout or {}).get("decoupling_pct")) or 0.0)
+    return decoupling > 10.0
+
+
+def _workout_hr_load_above_power_load(workout: Optional[dict[str, Any]]) -> bool:
+    if not _workout_is_execution_eligible(workout):
+        return False
+    hr_load = _to_float_or_none(workout.get("hr_load"))
+    power_load = _to_float_or_none(workout.get("power_load"))
+    if hr_load is None or power_load is None:
+        return False
+    if power_load <= 0:
+        return False
+    return hr_load >= power_load + 10.0 and hr_load >= power_load * 1.15
+
+
+def _workout_poor_feel_at_moderate_if(workout: Optional[dict[str, Any]]) -> bool:
+    if not _workout_is_execution_eligible(workout):
+        return False
+    intensity = _to_float_or_none(workout.get("if"))
+    feel = _to_float_or_none(workout.get("feel"))
+    if intensity is None or feel is None:
+        return False
+    return intensity <= 0.85 and feel >= 4.0
+
+
+def _workout_effective_rpe(workout: Optional[dict[str, Any]]) -> Optional[float]:
+    if not workout:
+        return None
+    rpe = _to_float_or_none(workout.get("rpe"))
+    if rpe is not None:
+        return rpe
+    duration = _to_float_or_none(workout.get("duration_min")) or 0.0
+    session_rpe_load = _to_float_or_none(workout.get("session_rpe_load"))
+    if duration < 20.0 or session_rpe_load is None:
+        return None
+    return session_rpe_load / duration
+
+
+def _workout_high_variability_for_steady(workout: Optional[dict[str, Any]]) -> bool:
+    if not _workout_is_steady(workout):
+        return False
+    vi = _to_float_or_none((workout or {}).get("variability_index"))
+    return vi is not None and vi >= 1.1
+
+
+def _workout_cost_high_for_output(workout: Optional[dict[str, Any]]) -> bool:
+    if not _workout_is_execution_eligible(workout):
+        return False
+    intensity = _to_float_or_none(workout.get("if"))
+    effective_rpe = _workout_effective_rpe(workout)
+    poor_feel = _workout_poor_feel_at_moderate_if(workout)
+    if intensity is not None and effective_rpe is not None and intensity <= 0.8 and effective_rpe >= 8.0:
+        return True
+    if intensity is not None and effective_rpe is not None and poor_feel and intensity <= 0.75 and effective_rpe >= 7.0:
+        return True
+    return False
+
+
+def _workout_is_expensive(workout: Optional[dict[str, Any]]) -> bool:
+    if not _workout_is_execution_eligible(workout):
+        return False
+    high_decoupling = _workout_has_high_decoupling(workout)
+    hr_load_above_power = _workout_hr_load_above_power_load(workout)
+    high_cost_for_output = _workout_cost_high_for_output(workout)
+    high_variability = _workout_high_variability_for_steady(workout)
+    poor_feel = _workout_poor_feel_at_moderate_if(workout)
+    structural_cost_signals = [high_decoupling, hr_load_above_power, high_variability]
+    if len([item for item in structural_cost_signals if item]) >= 2:
+        return True
+    if high_cost_for_output and any(structural_cost_signals):
+        return True
+    if hr_load_above_power and poor_feel:
+        return True
+    return False
+
+
+def _execution_verdict_precalc(workout: Optional[dict[str, Any]]) -> Optional[str]:
+    if not workout:
+        return None
+    session_class = workout.get("session_class")
+    if session_class in {"commute", "strength", "strength_upper", "strength_lower"}:
+        return None
+    expensive = _workout_is_expensive(workout)
+    failed = _workout_note_suggests_failure(workout)
+    if failed:
+        return "failed"
+    if expensive and session_class in {"vo2", "hiit", "threshold", "sweet_spot"}:
+        return "strong_but_costly"
+    if expensive:
+        return "expensive"
+    if _workout_has_execution_metrics(workout):
+        return "controlled"
+    return None
+
+
+def _workout_note_suggests_failure(workout: Optional[dict[str, Any]]) -> bool:
+    if not workout:
+        return False
+    texts = [str((item or {}).get("text") or "").lower() for item in (workout.get("notes") or [])]
+    markers = ("failed", "could not", "couldn't", "bailed", "cut short", "didn't finish", "не смог", "сорвал", "не закончил")
+    return any(any(marker in text for marker in markers) for text in texts)
+
+
+def _latest_workout_expensive(snapshot: dict[str, Any]) -> Optional[bool]:
+    recent = _recent_workouts(snapshot, lookback_days=14)
+    for workout in recent:
+        if _workout_is_execution_eligible(workout):
+            return _workout_is_expensive(workout)
+    return None
+
+
+def _recent_expensive_sessions_count(snapshot: dict[str, Any], lookback_days: int = 14) -> int:
+    return len([item for item in _recent_workouts(snapshot, lookback_days=lookback_days) if _workout_is_expensive(item)])
 
 
 def _load_weekly_row(
@@ -1838,6 +2214,36 @@ def _round_or_none(value: Optional[float], digits: int) -> Optional[float]:
     if value is None:
         return None
     return round(value, digits)
+
+
+def _normalize_power_zone_times(value: Any) -> Optional[dict[str, int]]:
+    if not isinstance(value, list):
+        return None
+    result: dict[str, int] = {}
+    for item in value:
+        if not isinstance(item, dict):
+            continue
+        zone_id = item.get("id")
+        secs = _to_float_or_none(item.get("secs"))
+        if not zone_id or secs is None:
+            continue
+        key = str(zone_id).strip().lower()
+        if not key:
+            continue
+        result[key] = int(round(secs))
+    return result or None
+
+
+def _normalize_hr_zone_times(value: Any) -> Optional[dict[str, int]]:
+    if not isinstance(value, list):
+        return None
+    result: dict[str, int] = {}
+    for index, secs_value in enumerate(value, start=1):
+        secs = _to_float_or_none(secs_value)
+        if secs is None:
+            continue
+        result[f"z{index}"] = int(round(secs))
+    return result or None
 
 
 def _parse_json_or_none(value: Optional[str]) -> Any:

@@ -12,7 +12,7 @@
   - `-10 ... 5` = `grey`
   - `5 ... 20` = `fresh`
   - `> 20` = `transition`
-- `Ramp rate` = speed of change of modeled load / form over time. Interpret it in the context of recent weeks.
+- `Ramp rate` = rate of change of modeled fitness / CTL over time. Interpret it in the context of recent weeks, not as a standalone signal.
 - `ride_eftp_watts` and `run_eftp` = performance proxies for cycling and running.
 - `ride_eftp_wkg` and `run_eftp_wkg` = the same performance proxies normalized by body weight.
 - In compact trend and baseline blocks:
@@ -21,22 +21,41 @@
   - `coverage_pct` = how complete the window is
   - `sd` = standard deviation inside that window
   - `typical_low` / `typical_high` = athlete's normal corridor in that baseline window, currently derived as `avg ± sd`
-- `training_load` = weekly modeled load from Intervals.
+- `training_load` = modeled load from Intervals. At session level this is activity load, typically actual TSS or HR-estimated load when power is unavailable. At week level it is the aggregated weekly load.
 - `session_rpe_load` = subjective session load, usually something like `duration × RPE`.
-- `power_np` = normalized power or weighted average power proxy for a session.
+- `power_np` = session power summary for this snapshot: normalized power when available, otherwise a weighted-power proxy.
 - `if` = intensity factor for a session. Interpret it as relative intensity, not as load by itself.
 - `rpe` = session rating of perceived exertion.
+- `feel` = same-session subjective state / feel score from Intervals. Treat it as a state signal, not as load.
+- Practical `feel` interpretation:
+  - `1` = strong
+  - `2` = good
+  - `3` = normal
+  - `4` = poor
+  - `5` = weak
 - `cadence_avg` = average cadence for the session.
+- `decoupling_pct` = aerobic decoupling / Pw:HR drift proxy for the session. Higher absolute values usually mean worse aerobic durability, more fatigue, more heat cost, or more fueling issues. Best interpreted on comparable steady sessions.
+- `efficiency_factor` = session efficiency proxy, approximately normalized power divided by average heart rate. Best used across comparable steady sessions.
+- `variability_index` = pacing variability proxy, approximately normalized power divided by average power. Near `1.00` is steadier; higher values mean a more stochastic session.
+- `power_load` = power-derived session load.
+- `hr_load` = heart-rate-derived session load.
+- `power_zone_times` = seconds spent in power zones during the session.
+- `hr_zone_times` = seconds spent in heart-rate zones during the session.
+- `joules_above_ftp` = work done above FTP. Useful for understanding hard-session cost.
+- `max_wbal_depletion` = maximum modeled W'bal depletion value reported by Intervals. Use it comparatively unless you have a validated athlete-specific interpretation.
+- `session_class` = backend-derived workout intent / class. Prefer it as the primary workout-type hint when present.
+- `execution_verdict_precalc` = backend-derived session verdict. Prefer it as a summary helper, but still verify it against the session metrics.
+- `upper_zone_leakage_pct` = percent of session time above easy-zone intent, mainly for endurance rides.
 - `mood` = same-day subjective mood / emotional tone, typically on a `1..4` scale:
-  - `1` = very low / poor mood
-  - `2` = average
-  - `3` = good
-  - `4` = great
+  - `1` = great
+  - `2` = good
+  - `3` = average / ok
+  - `4` = grumpy / poor
 - `motivation` = same-day subjective willingness to train, typically on a `1..4` scale:
-  - `1` = very low motivation / strong resistance to train
-  - `2` = average / acceptable motivation
-  - `3` = high motivation
-  - `4` = extreme motivation
+  - `1` = extreme motivation
+  - `2` = high motivation
+  - `3` = average / acceptable motivation
+  - `4` = low motivation / resistance to train
 - Key distinction:
   - `motivation` = willingness to act, train, and tolerate load
   - `mood` = emotional state / emotional tone
@@ -59,6 +78,14 @@ Interpretation rules:
 - Analyze weight only as a trend and context signal, without medical conclusions.
 - If weight is missing or too sparse, explicitly say that the weight conclusion is limited.
 - Do not treat `ramp rate` as a standalone signal.
+- Treat workout execution metrics as session-level context:
+  - `decoupling_pct` rising on similar endurance work can support a fatigue or low-readiness read
+  - `efficiency_factor` falling on similar steady sessions can support reduced aerobic efficiency
+  - high `session_rpe_load` with only moderate `if` can support hidden fatigue or unusually expensive load
+  - a gap between `power_load` and `hr_load` can help explain whether the session cost was more mechanical or more cardiovascular
+  - `power_zone_times` tells you what kind of work the athlete actually did, which `if` alone cannot do
+- Poor or weak `feel` alone is supportive, not decisive.
+- Poor or weak `feel` with moderate `if` and high `rpe` is a stronger caution pattern.
 - Do not over-interpret `mood` or `motivation` in isolation.
 - `mood` and `motivation` become much more useful when interpreted together with session `RPE`, `IF`, and execution quality.
 - `motivation` can drop with high fatigue, low energy availability, overreaching, or training monotony.

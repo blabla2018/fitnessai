@@ -18,7 +18,13 @@ Use the JSON blocks like this:
   - `notes` = day notes, each note object contains only `title` and `text`
   - `workouts` = workouts performed on that date
 - Each workout may include:
-  - duration / power / NP / IF / FTP reference / HR / cadence / RPE / training load
+  - duration / power / NP / IF / FTP reference / HR / cadence
+  - `rpe` and `session_rpe_load`
+  - execution and cost fields such as `decoupling_pct`, `efficiency_factor`, `variability_index`, `power_load`, `hr_load`
+  - session structure fields such as `power_zone_times` and `hr_zone_times`
+  - high-intensity cost fields such as `joules_above_ftp` and `max_wbal_depletion`
+  - subjective state field `feel`
+  - intent/helper fields such as `session_class`, `is_commute_like`, `upper_zone_leakage_pct`, `execution_verdict_precalc`
   - `notes` = workout notes, each note object contains only `title` and `text`
 - `current_trends` = short operational trend blocks grouped by metric, not by time window. Each metric may contain only the windows that are useful for interpretation, for example `3d / 7d / 14d / 28d`.
 - Each `current_trends` metric window may include:
@@ -71,7 +77,7 @@ Use the JSON blocks like this:
 - `contradictions` = explicit disagreement markers between important signals
 - `decision_support` = compact numeric support facts for the decision layer
 - `recovery_signals` = structured recovery-warning block with boolean inputs and counts
-- `plan_adherence` = explicit process-vs-plan block when available
+- `plan_adherence` = optional explicit process-vs-plan block when a real plan source and adherence logic are available
 - `load_action_detail` = operational detail for how the recommended load change should be applied
 - `decision_debug` = compact debug metadata for why the engine selected its load decision and confidence
 - `recommended_load_action` = discrete load decision chosen from a fixed rubric
@@ -95,6 +101,12 @@ The decision layer should be treated as the preferred interpretation layer above
 - `current_trends` and `personal_baselines` remain the numeric source of truth
 - `decision_inputs` and related blocks are the discrete interpretation layer
 - the final LLM answer should explain this state, not re-derive it freely
+
+If `decision_support.capacity_metric` is present:
+
+- use it as the primary capacity metric for the main capacity verdict
+- use other capacity metrics only as secondary context or for explicit comparison
+- do not let secondary capacity metrics override the primary capacity verdict unless the user explicitly asks for that comparison or the metrics clearly describe different domains
 
 If the structure is incomplete:
 
