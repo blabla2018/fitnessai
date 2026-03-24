@@ -29,6 +29,12 @@ Use the precomputed decision layer when available:
 
 If one of these blocks is missing, fall back to the lower-level metrics and say that the decision layer is incomplete.
 
+Reporting rule:
+
+- `decision_flags`, `reason_codes`, and `recommended_load_action` are internal interpretation handles, not user-facing phrasing by default.
+- In a normal report, translate them into plain language rather than echoing the raw code.
+- Only expose the raw technical code when the user explicitly asks for internals, debugging, or the exact field value.
+
 ## State Definitions
 
 ### Readiness State
@@ -153,6 +159,13 @@ Decision guidance:
 - `keep` when recovery, form, and execution context are aligned and no major warning is present
 - `deload_week` when repeated overload signs persist at the weekly-process level rather than only in today's state
 - repeated expensive sessions support `keep_but_simplify`, `reduce_20_30`, or `deload_week` depending on how persistent and how aligned the overload signals are
+
+User-facing translation principle:
+
+- translate a load action code into practical advice, not into the raw code string
+- example:
+  - not `recommended_load_action = reduce_20_30`
+  - but `сейчас разумно снизить нагрузку примерно на 20-30%, чтобы снять накопленную стоимость работы и вернуть качественное восстановление`
 
 ## Signal Priority
 

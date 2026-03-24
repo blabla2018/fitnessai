@@ -35,6 +35,11 @@ Routing rules:
 - In narrow source-trace or direct factual answers, a recommendation is optional and should only be added when it is genuinely useful.
 - For source-trace questions, provenance comes before interpretation.
 - For prescription and forecast questions, confidence and uncertainty must be visible.
+- Do not expose raw internal labels such as `decision_flags`, `reason_codes`, or `recommended_load_action` in the normal report unless the user explicitly asks for the technical internals.
+- When decision-layer internals are relevant, translate them into plain user language:
+  - what is happening
+  - why it matters
+  - what to do now
 
 ## Status Mode Structure
 
@@ -366,6 +371,7 @@ Style rules:
 - numbers first, generalizations second
 - avoid generic phrases without data references
 - show contradictions when they matter
+- prefer user-facing wording over internal code names
 - use emojis semantically, not decoratively
 - keep emoji usage restrained: usually 1-2 per section is enough
 - write for decision-making, not like a generic report

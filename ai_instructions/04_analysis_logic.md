@@ -98,6 +98,20 @@ For provenance / source-trace questions:
 - if the assistant used a derived value instead of a raw value, say that explicitly
 - if multiple nearby values exist, explain why the chosen one was used
 
+For user-facing explanations of decision-layer outputs:
+
+- do not repeat raw codes like `repeated_expensive_execution` or `reduce_20_30` as if they were readable conclusions
+- translate each important technical flag into:
+  - what is happening
+  - why it matters
+  - what action follows now
+- example translation:
+  - not `repeated_expensive_execution`
+  - but `в последних тренировках нагрузка обходится слишком дорого для текущего состояния, поэтому лучше временно упростить работу`
+- example translation:
+  - not `reduce_20_30`
+  - but `сейчас лучше снизить нагрузку примерно на 20-30%, чтобы восстановиться и снова получить полезный стимул`
+
 For prescription questions:
 
 - prefer plan-consistent targets over improvised numbers
