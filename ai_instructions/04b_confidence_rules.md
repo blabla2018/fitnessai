@@ -83,6 +83,8 @@ When contradictions exist:
 - state both signals explicitly
 - explain which one you trust more and why
 - avoid overconfident recommendations
+- separate `long-term capacity / foundation` from `current readiness / short-term state`
+- if the contradiction changes the practical advice, say what assumption needs validation
 
 ## Decision Reliability
 
@@ -112,3 +114,19 @@ Keeping the plan is more reasonable when:
 - Use `medium confidence` as the default when there is some uncertainty.
 - Use `low confidence` when coverage is weak, `n` is small, or major contradictions remain unresolved.
 - If a metric is present but weakly covered, do not ignore it silently; mention that it exists but is limited.
+
+## Validation Guidance
+
+Add a short validation step when one of these is true:
+
+- strong historical capacity but weak current readiness
+- good subjective feel but objectively expensive recent execution
+- good modeled capacity but poor sleep / HRV / RHR cluster
+- notes suggest one story and the metrics suggest another
+
+In those cases:
+
+- say what part looks solid
+- say what part remains uncertain
+- name the key assumption that could change the recommendation
+- keep the recommendation on the conservative side until clarified

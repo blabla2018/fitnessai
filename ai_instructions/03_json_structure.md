@@ -25,7 +25,7 @@ Use the JSON blocks like this:
   - high-intensity cost fields such as `joules_above_ftp` and `max_wbal_depletion`
   - subjective state field `feel`
   - intent/helper fields such as `session_class`, `is_commute_like`, `upper_zone_leakage_pct`, `execution_verdict_precalc`
-  - `notes` = workout notes, each note object contains only `title` and `text`
+  - `description` = workout-level free text, typically taken from the Intervals activity description
 - `current_trends` = short operational trend blocks grouped by metric, not by time window. Each metric may contain only the windows that are useful for interpretation, for example `3d / 7d / 14d / 28d`.
 - Each `current_trends` metric window may include:
   - `avg`
@@ -48,6 +48,13 @@ Use the JSON blocks like this:
   - `run_eftp`
   - `run_eftp_wkg`
   - optional subjective metrics such as `mood_score` and `motivation_score`
+- Common current window patterns in this project currently look like:
+  - `sleep_hours` -> `3d / 7d / 14d / 28d`
+  - `hrv`, `rhr` -> `7d / 14d`
+  - `vo2max` -> `7d / 28d`
+  - `form` -> `3d / 7d`
+  - `fatigue`, `fitness`, `weight_kg`, `ride_eftp_*`, `run_eftp*` -> `7d / 28d`
+  - `mood_score`, `motivation_score` -> `7d / 14d`
 - `personal_baselines` = personal baseline blocks grouped by metric with only `90d` and `365d` windows.
 - Typical metric families in `personal_baselines` are:
   - `sleep_hours`

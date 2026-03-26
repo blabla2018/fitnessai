@@ -2,6 +2,11 @@
 
 Local app for training and recovery analysis.
 
+File roles:
+- `README.md` = setup and human-facing usage
+- `AGENTS.md` = Codex operational behavior in this repo
+- `ai_instructions/` = analysis rules and output logic
+
 What it does:
 - pulls data from Intervals
 - stores it locally in SQLite
@@ -44,13 +49,6 @@ python3 -m app.main export-metrics
 
 This refreshes recent data and rebuilds the latest AI-ready snapshot.
 
-## Important Notes
-
-- Intervals is used in read-only mode.
-- Only `GET` requests are allowed for Intervals.
-- Secrets should be passed through environment variables, not stored in code.
-- There is one local SQLite database inside this repo.
-
 ## Useful Commands
 
 Show config:
@@ -73,7 +71,13 @@ The project brings together:
 - weekly / day / workout notes
 - weekly summaries and activity-level context
 
-The main output right now is a local JSON snapshot that AI can use for clear analysis of status, training, and recommendations.
+The main output right now is a local JSON snapshot that AI can use for clear analysis of status, training, and recommendations. That JSON snapshot is organized into a few practical layers:
+- `current_week` and weekly history for recent training context
+- `current_trends` and `personal_baselines` for short-term change vs personal norm
+- workout-level details for execution, cost, and notes
+- a decision layer with readiness, fatigue, confidence, and load-action support
+
+In practice, this lets AI answer not only `what the numbers are`, but also `what is changing`, `why it matters`, and `what to do next`.
 
 ## Using It With ChatGPT
 
@@ -94,3 +98,30 @@ In short:
 - `INSTRUCTIONS.md` -> Project Instructions
 - other `ai_instructions/*.md` files -> Sources
 - `metrics_YYYY-MM-DD.json` -> attached in chat
+
+## Using It With Codex
+
+In Codex, the recommended setup is to keep two separate threads:
+
+1. `Development`
+2. `Status and analysis`
+
+Typical requests for `Status and analysis`:
+
+- `дай статус`
+- `дай статус без обновления`
+- `обнови данные и дай статус`
+- `оцени тренировку сегодня`
+- `разбери текущую неделю`
+- `что делать завтра`
+
+Codex behavior for these requests is defined in `AGENTS.md`.
+
+### Training plan files in Codex
+
+There are two training plan files with different purposes:
+
+- `data/athlete/training_plan.md` = your real athlete-specific plan for local Codex analysis
+- `ai_instructions/templates/training_plan_template.md` = a generic template used for prompt packaging and guidance
+
+When using Codex for actual status and training analysis, prefer `data/athlete/training_plan.md`.

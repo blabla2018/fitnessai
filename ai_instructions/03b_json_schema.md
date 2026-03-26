@@ -173,15 +173,15 @@ Semantics:
 - Notes at week, day, and workout level must always be read during analysis when present.
 - Notes are contextual and explanatory signals, not primary objective measurements.
 - Notes must not override objective metrics such as power, heart rate, fatigue, form, or modeled load by themselves.
-- `workout.notes[]` are usually free-form raw observations about one session.
+- `workout.description` is usually free-form raw text about one session.
 - `week.notes[]` may contain manually curated summaries, rules, or reminders that the athlete chose to preserve.
 - Notes are especially useful for:
   - explaining anomalies in metrics or execution
   - identifying subjective strain, discomfort, failure, or unusual circumstances
   - extracting repeated patterns across multiple entries
 - Prefer structured notes when available, especially sequences like `state -> work -> response -> result -> insight`.
-- Repeated workout-note patterns may be generalized into temporary week-level or review-level rules during analysis, but these derived rules are not raw schema fields unless explicitly added elsewhere.
-- Candidate rules inferred from `workout.notes[]` are provisional until they are manually reflected in `week.notes[]` or repeatedly supported again by later notes plus metrics.
+- Repeated workout-description patterns may be generalized into temporary week-level or review-level rules during analysis, but these derived rules are not raw schema fields unless explicitly added elsewhere.
+- Candidate rules inferred from `workout.description` are provisional until they are manually reflected in `week.notes[]` or repeatedly supported again by later notes plus metrics.
 - `week.notes[]` should usually be treated as the higher-trust memory layer than one-off workout notes, but even curated notes still must not override clear objective metrics by themselves.
 
 ## Current Trends
@@ -258,6 +258,17 @@ Typical metric keys:
 Each metric contains one or more baseline windows:
 
 - `90d`
+
+Not every metric uses every window.
+
+Current practical examples in this project:
+
+- `sleep_hours` commonly uses `3d / 7d / 14d / 28d`
+- `hrv` and `rhr` commonly use `7d / 14d`
+- `vo2max` commonly uses `7d / 28d`
+- `form` commonly uses `3d / 7d`
+- `fatigue`, `fitness`, `weight_kg`, `ride_eftp_*`, `run_eftp*` commonly use `7d / 28d`
+- `mood_score` and `motivation_score` commonly use `7d / 14d`
 - `365d`
 
 ### Baseline Window Object
@@ -283,7 +294,7 @@ Aggregation rules:
 - `coverage_pct = round(100 * n / window_size_days)`
 - `best_*` fields are maximum valid values over the named lookback window.
 
-## Source Semantics
+## Data Provenance
 
 - `sleep_hours`, `hrv_ms`, `vo2max`, `resting_hr_bpm`, `weight_kg`, `mood_score`, `motivation_score`:
   - imported from Intervals wellness data

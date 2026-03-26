@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from pathlib import Path
 
 from app.config import get_settings
@@ -108,20 +109,24 @@ def main() -> None:
     parser = build_parser()
     args = parser.parse_args()
 
-    if args.command == "init-db":
-        command_init_db()
-    elif args.command == "show-config":
-        command_show_config()
-    elif args.command == "sync-intervals":
-        command_sync_intervals(args.days)
-    elif args.command == "sync-last-week":
-        command_sync_intervals(7)
-    elif args.command == "show-recent-data":
-        command_show_recent_data(args.days)
-    elif args.command == "export-metrics":
-        command_export_metrics(args.output_dir)
-    else:
-        raise ValueError(f"Unsupported command: {args.command}")
+    try:
+        if args.command == "init-db":
+            command_init_db()
+        elif args.command == "show-config":
+            command_show_config()
+        elif args.command == "sync-intervals":
+            command_sync_intervals(args.days)
+        elif args.command == "sync-last-week":
+            command_sync_intervals(7)
+        elif args.command == "show-recent-data":
+            command_show_recent_data(args.days)
+        elif args.command == "export-metrics":
+            command_export_metrics(args.output_dir)
+        else:
+            raise ValueError(f"Unsupported command: {args.command}")
+    except (ValueError, RuntimeError) as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        raise SystemExit(1)
 
 
 if __name__ == "__main__":

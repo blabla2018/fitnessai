@@ -339,14 +339,21 @@ def _load_workouts_by_date(
             w.sport_type,
             w.sub_type,
             w.source_device,
-            w.duration_seconds,
+            w.elapsed_time_seconds,
+            w.moving_time_seconds,
+            w.distance_meters,
             w.avg_hr_bpm,
             w.max_hr_bpm,
             w.avg_power_watts,
             w.normalized_power_watts,
             w.training_load,
             w.perceived_exertion,
-            w.workout_notes,
+            w.description,
+            w.average_speed_mps,
+            w.max_speed_mps,
+            w.is_trainer,
+            w.is_race,
+            w.is_commute,
             w.raw_json,
             (
                 SELECT wm.metric_value
@@ -420,10 +427,18 @@ def _build_workout_object(items: list[dict[str, Any]]) -> Optional[dict[str, Any
         *[item.get("sport_type") for item in items],
         *[raw.get("type") for raw in raws],
     )
-    duration_seconds = _first_non_null(
-        *[item.get("duration_seconds") for item in items],
+    elapsed_time_seconds = _first_non_null(
+        *[item.get("elapsed_time_seconds") for item in items],
         *[raw.get("elapsed_time") for raw in raws],
         *[raw.get("moving_time") for raw in raws],
+    )
+    moving_time_seconds = _first_non_null(
+        *[item.get("moving_time_seconds") for item in items],
+        *[raw.get("moving_time") for raw in raws],
+    )
+    distance_meters = _first_non_null(
+        *[item.get("distance_meters") for item in items],
+        *[raw.get("distance") for raw in raws],
     )
     power_avg = _first_non_null(
         *[item.get("avg_power_watts") for item in items],
@@ -466,7 +481,6 @@ def _build_workout_object(items: list[dict[str, Any]]) -> Optional[dict[str, Any
         *[raw.get("icu_training_load") for raw in raws],
     )
     workout_note = _first_non_null(
-        *[item.get("workout_notes") for item in items],
         *[raw.get("description") for raw in raws],
     )
     session_rpe_load = _first_non_null(*[raw.get("session_rpe") for raw in raws])
@@ -480,20 +494,27 @@ def _build_workout_object(items: list[dict[str, Any]]) -> Optional[dict[str, Any
     max_wbal_depletion = _first_non_null(*[raw.get("icu_max_wbal_depletion") for raw in raws])
     power_zone_times = _first_non_null(*[_normalize_power_zone_times(raw.get("icu_zone_times")) for raw in raws])
     hr_zone_times = _first_non_null(*[_normalize_hr_zone_times(raw.get("icu_hr_zone_times")) for raw in raws])
-    commute_like = _is_commute_like(title, sport_type, raws)
+    commute_like = _first_non_null(
+        *[_sqlite_bool(item.get("is_commute")) for item in items],
+    )
+    if commute_like is None:
+        commute_like = _is_commute_like(title, sport_type, raws)
     session_class = _session_class(sport_type, title, power_zone_times, intensity_factor, commute_like)
     upper_zone_leakage_pct = _upper_zone_leakage_pct(power_zone_times) if session_class == "endurance" else None
 
     if not any(
         value is not None
-        for value in (title, sport_type, duration_seconds, power_np, hr_avg, training_load)
+        for value in (title, sport_type, elapsed_time_seconds, power_np, hr_avg, training_load)
     ):
         return None
 
     workout = {
         "type": _session_type_label(sport_type),
         "name": title,
-        "duration_min": _round_or_none(_seconds_to_minutes(duration_seconds), 1),
+        "duration_min": _round_or_none(_seconds_to_minutes(elapsed_time_seconds), 1),
+        "elapsed_time_min": _round_or_none(_seconds_to_minutes(elapsed_time_seconds), 1),
+        "moving_time_min": _round_or_none(_seconds_to_minutes(moving_time_seconds), 1),
+        "distance_km": _round_or_none(_meters_to_km(distance_meters), 2),
         "power_avg": _round_or_none(_to_float_or_none(power_avg), 0),
         "power_np": _round_or_none(_to_float_or_none(power_np), 0),
         "if": _round_or_none(_normalize_intensity_factor(intensity_factor), 2),
@@ -516,8 +537,23 @@ def _build_workout_object(items: list[dict[str, Any]]) -> Optional[dict[str, Any
         "hr_zone_times": hr_zone_times,
         "session_class": session_class,
         "is_commute_like": commute_like,
+        "is_trainer": _first_non_null(*[_sqlite_bool(item.get("is_trainer")) for item in items], *[raw.get("trainer") for raw in raws]),
+        "is_race": _first_non_null(*[_sqlite_bool(item.get("is_race")) for item in items], *[raw.get("race") for raw in raws]),
+        "is_commute": commute_like,
+        "average_speed_mps": _round_or_none(
+            _to_float_or_none(
+                _first_non_null(*[item.get("average_speed_mps") for item in items], *[raw.get("average_speed") for raw in raws])
+            ),
+            3,
+        ),
+        "max_speed_mps": _round_or_none(
+            _to_float_or_none(
+                _first_non_null(*[item.get("max_speed_mps") for item in items], *[raw.get("max_speed") for raw in raws])
+            ),
+            3,
+        ),
         "upper_zone_leakage_pct": _round_or_none(upper_zone_leakage_pct, 1),
-        "notes": _workout_notes_array(workout_note),
+        "description": workout_note,
         "sport_type_raw": sport_type,
         "source_device": _first_non_null(
             *[item.get("source_device") for item in items],
@@ -812,11 +848,21 @@ def _trend_block(
                 delta_vs_reference=_delta_vs_rows(rows_by_window[7], rows_by_window[28], lambda row: row.get("mood_score"), digits=2),
                 delta_vs_reference_label="delta_vs_28d",
             ),
+            "14d": _window_stat(
+                rows_by_window[14], 14, lambda row: row.get("mood_score"), digits=2,
+                delta_vs_reference=_delta_vs_rows(rows_by_window[14], rows_by_window[28], lambda row: row.get("mood_score"), digits=2),
+                delta_vs_reference_label="delta_vs_28d",
+            ),
         },
         "motivation_score": {
             "7d": _window_stat(
                 rows_by_window[7], 7, lambda row: row.get("motivation_score"), digits=2,
                 delta_vs_reference=_delta_vs_rows(rows_by_window[7], rows_by_window[28], lambda row: row.get("motivation_score"), digits=2),
+                delta_vs_reference_label="delta_vs_28d",
+            ),
+            "14d": _window_stat(
+                rows_by_window[14], 14, lambda row: row.get("motivation_score"), digits=2,
+                delta_vs_reference=_delta_vs_rows(rows_by_window[14], rows_by_window[28], lambda row: row.get("motivation_score"), digits=2),
                 delta_vs_reference_label="delta_vs_28d",
             ),
         },
@@ -1954,7 +2000,7 @@ def _execution_verdict_precalc(workout: Optional[dict[str, Any]]) -> Optional[st
 def _workout_note_suggests_failure(workout: Optional[dict[str, Any]]) -> bool:
     if not workout:
         return False
-    texts = [str((item or {}).get("text") or "").lower() for item in (workout.get("notes") or [])]
+    texts = [str(workout.get("description") or "").lower()]
     markers = ("failed", "could not", "couldn't", "bailed", "cut short", "didn't finish", "не смог", "сорвал", "не закончил")
     return any(any(marker in text for marker in markers) for text in texts)
 
@@ -2085,17 +2131,21 @@ def _first_non_null(*values: Any) -> Any:
     return None
 
 
+def _sqlite_bool(value: Any) -> Optional[bool]:
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        return value
+    if value in (0, 1):
+        return bool(value)
+    return None
+
+
 def _note_object(item: dict[str, Any]) -> dict[str, Any]:
     return {
         "title": item.get("title"),
         "text": item.get("note_text"),
     }
-
-
-def _workout_notes_array(note_text: Optional[str]) -> list[dict[str, Any]]:
-    if not note_text:
-        return []
-    return [{"title": None, "text": note_text}]
 
 
 def _workout_source_priority(item: dict[str, Any]) -> tuple[int, int]:

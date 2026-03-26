@@ -74,20 +74,6 @@ class IntervalsClient:
             raise ValueError("Expected a list of athlete summary rows from Intervals API.")
         return payload
 
-    def fetch_activity_messages(self, activity_id: str) -> list[dict]:
-        response_text = self._get(
-            f"/api/v1/activity/{activity_id}/messages",
-            {},
-        )
-        payload = json.loads(response_text)
-        if isinstance(payload, list):
-            return payload
-        if isinstance(payload, dict):
-            messages = payload.get("messages")
-            if isinstance(messages, list):
-                return messages
-        return []
-
     def _athlete_ref(self) -> str:
         if not self.athlete_id:
             raise ValueError("Intervals athlete id is not configured.")

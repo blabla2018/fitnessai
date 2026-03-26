@@ -167,7 +167,6 @@ def sync_intervals_days(
         upsert_started_at = time.perf_counter()
         activity_upserts = upsert_activity_rows(
             connection,
-            client,
             activity_rows,
             progress_callback=progress_callback,
         )
@@ -243,7 +242,6 @@ def sync_intervals_days(
             "total_elapsed_seconds": total_elapsed_seconds,
         }
     except Exception as exc:
-        _report_progress(progress_callback, f"Intervals sync failed: {exc}")
         finish_sync_run(
             connection=connection,
             sync_run_id=sync_run_id,
@@ -518,7 +516,6 @@ def upsert_weekly_summary_rows(
 
 def upsert_activity_rows(
     connection: sqlite3.Connection,
-    client: IntervalsClient,
     rows: list[dict],
     progress_callback: ProgressCallback = None,
 ) -> int:
@@ -542,10 +539,6 @@ def upsert_activity_rows(
             continue
 
         local_date = start_date_local[:10]
-        try:
-            activity_note = _extract_activity_note(client.fetch_activity_messages(str(external_id)))
-        except Exception:
-            activity_note = None
         connection.execute(
             """
             INSERT INTO workouts (
@@ -558,7 +551,8 @@ def upsert_activity_rows(
                 sport_type,
                 sub_type,
                 source_device,
-                duration_seconds,
+                elapsed_time_seconds,
+                moving_time_seconds,
                 distance_meters,
                 elevation_gain_meters,
                 calories_kcal,
@@ -569,11 +563,16 @@ def upsert_activity_rows(
                 normalized_power_watts,
                 training_load,
                 perceived_exertion,
-                workout_notes,
+                description,
+                average_speed_mps,
+                max_speed_mps,
+                is_trainer,
+                is_race,
+                is_commute,
                 raw_json,
                 updated_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
             ON CONFLICT(source, external_id) DO UPDATE SET
                 started_at_utc = excluded.started_at_utc,
                 ended_at_utc = excluded.ended_at_utc,
@@ -582,7 +581,8 @@ def upsert_activity_rows(
                 sport_type = excluded.sport_type,
                 sub_type = excluded.sub_type,
                 source_device = excluded.source_device,
-                duration_seconds = excluded.duration_seconds,
+                elapsed_time_seconds = excluded.elapsed_time_seconds,
+                moving_time_seconds = excluded.moving_time_seconds,
                 distance_meters = excluded.distance_meters,
                 elevation_gain_meters = excluded.elevation_gain_meters,
                 calories_kcal = excluded.calories_kcal,
@@ -593,7 +593,12 @@ def upsert_activity_rows(
                 normalized_power_watts = excluded.normalized_power_watts,
                 training_load = excluded.training_load,
                 perceived_exertion = excluded.perceived_exertion,
-                workout_notes = excluded.workout_notes,
+                description = excluded.description,
+                average_speed_mps = excluded.average_speed_mps,
+                max_speed_mps = excluded.max_speed_mps,
+                is_trainer = excluded.is_trainer,
+                is_race = excluded.is_race,
+                is_commute = excluded.is_commute,
                 raw_json = excluded.raw_json,
                 updated_at = CURRENT_TIMESTAMP
             """,
@@ -608,6 +613,7 @@ def upsert_activity_rows(
                 row.get("trainer_ride_type"),
                 _first_non_empty(row.get("device_name"), row.get("device")),
                 _to_int(_first_non_empty(row.get("elapsed_time"), row.get("moving_time"))),
+                _to_int(row.get("moving_time")),
                 _to_float(row.get("distance")),
                 _to_float(_first_non_empty(row.get("total_elevation_gain"), row.get("elevation_gain"))),
                 _to_float(row.get("calories")),
@@ -624,7 +630,12 @@ def upsert_activity_rows(
                 ),
                 _to_float(row.get("icu_training_load")),
                 _to_float(row.get("icu_rpe")),
-                _first_non_empty(activity_note, row.get("description")),
+                row.get("description"),
+                _to_float(row.get("average_speed")),
+                _to_float(row.get("max_speed")),
+                1 if row.get("trainer") is True else 0 if row.get("trainer") is False else None,
+                1 if row.get("race") is True else 0 if row.get("race") is False else None,
+                1 if row.get("commute") is True else 0 if row.get("commute") is False else None,
                 json.dumps(row, ensure_ascii=False),
             ),
         )
@@ -786,20 +797,6 @@ def _end_time_from_activity(row: dict) -> Optional[str]:
     except ValueError:
         return None
     return (started + timedelta(seconds=elapsed_seconds)).isoformat().replace("+00:00", "Z")
-
-
-def _extract_activity_note(messages: list[dict]) -> Optional[str]:
-    text_candidates: list[str] = []
-    for message in messages:
-        if not isinstance(message, dict):
-            continue
-        for key in ("message", "text", "body", "content", "description", "note"):
-            value = message.get(key)
-            if isinstance(value, str) and value.strip():
-                text_candidates.append(value.strip())
-    if not text_candidates:
-        return None
-    return text_candidates[-1]
 
 
 def _is_useful_activity(row: dict) -> bool:

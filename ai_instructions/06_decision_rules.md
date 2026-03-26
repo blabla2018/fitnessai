@@ -165,7 +165,7 @@ User-facing translation principle:
 - translate a load action code into practical advice, not into the raw code string
 - example:
   - not `recommended_load_action = reduce_20_30`
-  - but `сейчас разумно снизить нагрузку примерно на 20-30%, чтобы снять накопленную стоимость работы и вернуть качественное восстановление`
+  - but `it is reasonable to reduce load by about 20-30% now to absorb the accumulated cost and restore higher-quality recovery`
 
 ## Signal Priority
 
@@ -186,7 +186,7 @@ Priority rules:
 - VO2max is slow context, not a same-day decision driver.
 - Expensive execution can reduce confidence in an apparently neutral or positive capacity read.
 
-## Explanation and Source-Trace Rules
+## Explanation and Provenance Rules
 
 For metric explanation questions:
 
@@ -304,33 +304,33 @@ When the user asks about training usefulness, block quality, or one workout, pro
 
 Use these categories:
 
-- `полезна`
-- `полезна, но дорогая`
-- `нейтральна`
-- `несвоевременна`
-- `не попала в цель`
+- `useful`
+- `useful_but_costly`
+- `neutral`
+- `mistimed`
+- `missed_target`
 
 Interpret them this way:
 
-- `полезна` = likely delivered the intended stimulus at acceptable cost for the current state
-- `полезна, но дорогая` = likely delivered the intended stimulus, but cost was materially high
-- `нейтральна` = added some context or maintenance value, but not a strong targeted stimulus
-- `несвоевременна` = the session may have been good in itself, but the athlete's short-term state suggests it came at the wrong time
-- `не попала в цель` = the session execution or structure did not match the likely intended purpose
+- `useful` = likely delivered the intended stimulus at acceptable cost for the current state
+- `useful_but_costly` = likely delivered the intended stimulus, but cost was materially high
+- `neutral` = added some context or maintenance value, but not a strong targeted stimulus
+- `mistimed` = the session may have been good in itself, but the athlete's short-term state suggests it came at the wrong time
+- `missed_target` = the session execution or structure did not match the likely intended purpose
 
 Practical rules:
 
 - Do not treat `execution_verdict_precalc` as identical to usefulness. Execution quality and usefulness are related, but not the same.
-- A workout can be well executed yet still be `несвоевременна`.
-- A workout can be `полезна, но дорогая` when the stimulus was achieved but cost was clearly elevated.
-- A commute-like or incidental session is usually `нейтральна` unless the user explicitly asks to treat it as a meaningful training stimulus.
+- A workout can be well executed yet still be `mistimed`.
+- A workout can be `useful_but_costly` when the stimulus was achieved but cost was clearly elevated.
+- A commute-like or incidental session is usually `neutral` unless the user explicitly asks to treat it as a meaningful training stimulus.
 - For strength sessions, judge usefulness from `rpe`, `session_rpe_load`, `feel`, notes, and next-day interaction, not from cycling execution metrics.
 
 Timeliness guidance:
 
-- `своевременна` when readiness is at least stable enough for the session type and the cost is controlled
-- `погранично своевременна` when readiness is reduced but the session remained manageable
-- `несвоевременна` when readiness was reduced or poor and the session also looked expensive, overly stochastic, or unusually costly
+- `timely` when readiness is at least stable enough for the session type and the cost is controlled
+- `borderline_timed` when readiness is reduced but the session remained manageable
+- `mistimed` when readiness was reduced or poor and the session also looked expensive, overly stochastic, or unusually costly
 
 ## Workout-Type-Specific Decision Use
 
