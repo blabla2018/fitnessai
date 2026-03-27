@@ -26,7 +26,7 @@ def build_snapshot(connection: sqlite3.Connection) -> dict[str, Any]:
     current_date = current["metric_date"]
     current_week_start = _week_start_date(current_date)
     snapshot = {
-        "snapshot_version": "v4",
+        "snapshot_version": "v6",
         "current_week": _build_current_week(connection, current_date, current_week_start),
         "weekly_detailed_summary": _build_weeks(
             connection, current_date, current_week_start, RECENT_DETAILED_WEEKS
@@ -49,7 +49,7 @@ def export_metrics_file(
     snapshot: dict[str, Any],
     output_json_path: Path,
 ) -> None:
-    export_snapshot = _prune_for_export(snapshot)
+    export_snapshot = _prune_for_export(_reshape_export_snapshot(snapshot))
     output_json_path.parent.mkdir(parents=True, exist_ok=True)
     serialized = json.dumps(export_snapshot, ensure_ascii=False, indent=2)
     temp_path = output_json_path.with_suffix(f"{output_json_path.suffix}.tmp")
@@ -998,35 +998,41 @@ def _build_long_term_baselines(
 
 
 def _build_decision_layer(snapshot: dict[str, Any]) -> dict[str, Any]:
-    decision_inputs = _build_decision_inputs(snapshot)
-    decision_support = _build_decision_support(snapshot)
-    recovery_signals = _build_recovery_signals(snapshot, decision_inputs, decision_support)
-    contradictions = _build_contradictions(snapshot, decision_inputs)
-    decision_flags = _build_decision_flags(decision_inputs, recovery_signals, contradictions, decision_support)
-    reason_codes = _build_reason_codes(decision_inputs, decision_support, recovery_signals, contradictions)
-    recommended_load_action = _recommended_load_action(decision_inputs, contradictions, recovery_signals, decision_support)
+    support = _build_support_facts(snapshot)
+    decision_state = _build_decision_state(snapshot)
+    decision_inputs = _export_decision_inputs(decision_state)
+    primary_state_support = _build_primary_state_support(support)
+    recovery_signals = _build_recovery_signals(snapshot, decision_state, support)
+    contradictions = _build_contradictions(snapshot, decision_state, support)
+    recommended_load_action = _recommended_load_action(decision_state, contradictions, recovery_signals, support)
     load_action_detail = _build_load_action_detail(recommended_load_action)
     plan_adherence = _build_plan_adherence(snapshot)
-    confidence_precalc = _decision_confidence(decision_inputs, contradictions)
-    decision_debug = _build_decision_debug(decision_inputs, contradictions, recovery_signals, confidence_precalc)
+    confidence_precalc = _decision_confidence(decision_state, contradictions)
+    decision_debug = _build_decision_debug(decision_state, contradictions, recovery_signals, confidence_precalc)
+    capacity_context = _build_capacity_context(support)
+    execution_context = _build_execution_context(support)
+    subjective_context = _build_subjective_context(support)
+    weight_context = _build_weight_context(support)
     result = {
         "decision_inputs": decision_inputs,
-        "decision_flags": decision_flags,
-        "reason_codes": reason_codes,
-        "contradictions": contradictions,
-        "decision_support": decision_support,
+        "primary_state_support": primary_state_support,
         "recovery_signals": recovery_signals,
-        "load_action_detail": load_action_detail,
-        "decision_debug": decision_debug,
+        "contradictions": contradictions,
         "recommended_load_action": recommended_load_action,
+        "load_action_detail": load_action_detail,
         "confidence_precalc": confidence_precalc,
+        "capacity_context": capacity_context,
+        "execution_context": execution_context,
+        "subjective_context": subjective_context,
+        "weight_context": weight_context,
+        "decision_debug": decision_debug,
     }
     if plan_adherence is not None:
         result["plan_adherence"] = plan_adherence
     return result
 
 
-def _build_decision_inputs(snapshot: dict[str, Any]) -> dict[str, Any]:
+def _build_decision_state(snapshot: dict[str, Any]) -> dict[str, Any]:
     sleep_state = _sleep_state(snapshot)
     fatigue_state = _fatigue_state(snapshot)
     fitness_state = _fitness_state(snapshot)
@@ -1050,7 +1056,19 @@ def _build_decision_inputs(snapshot: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _build_decision_support(snapshot: dict[str, Any]) -> dict[str, Any]:
+def _export_decision_inputs(decision_state: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "readiness_state": decision_state["readiness_state"],
+        "fatigue_state": decision_state["fatigue_state"],
+        "form_zone": decision_state["form_zone"],
+        "sleep_state": decision_state["sleep_state"],
+        "subjective_state": decision_state["subjective_state"],
+        "process_state": decision_state["process_state"],
+        "data_quality_state": decision_state["data_quality_state"],
+    }
+
+
+def _build_support_facts(snapshot: dict[str, Any]) -> dict[str, Any]:
     current_day = ((snapshot.get("current_week") or {}).get("days") or [{}])[-1]
     capacity_metric = _capacity_metric_name(snapshot)
     recent_workouts = _recent_workouts(snapshot, lookback_days=14)
@@ -1084,8 +1102,6 @@ def _build_decision_support(snapshot: dict[str, Any]) -> dict[str, Any]:
         "form_7d_avg": _trend_avg(snapshot, "form", "7d"),
         "form_zone": _trend_value(snapshot, "form", "3d", "zone_majority") or _trend_value(snapshot, "form", "7d", "zone_majority"),
         "capacity_metric": capacity_metric,
-        "capacity_metric_group": _capacity_metric_group(capacity_metric),
-        "capacity_source_priority": ["ride_eftp_watts", "ride_eftp_wkg", "run_eftp", "run_eftp_wkg"],
         "capacity_7d_avg": _trend_avg(snapshot, capacity_metric, "7d"),
         "capacity_delta_vs_28d": _trend_numeric(snapshot, capacity_metric, "7d", "delta_vs_28d"),
         "capacity_delta_vs_90d": _trend_numeric(snapshot, capacity_metric, "7d", "delta_vs_90d"),
@@ -1120,170 +1136,184 @@ def _build_decision_support(snapshot: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _build_primary_state_support(support: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "sleep": {
+            "avg_7d": support.get("sleep_7d_avg"),
+            "delta_vs_28d": support.get("sleep_delta_vs_28d"),
+            "delta_vs_90d": support.get("sleep_delta_vs_90d"),
+            "coverage_pct_7d": support.get("sleep_7d_coverage_pct"),
+        },
+        "autonomic": {
+            "hrv_avg_7d": support.get("hrv_7d_avg"),
+            "hrv_delta_vs_14d": support.get("hrv_delta_vs_14d"),
+            "hrv_delta_vs_90d": support.get("hrv_delta_vs_90d"),
+            "hrv_coverage_pct_7d": support.get("hrv_7d_coverage_pct"),
+            "rhr_avg_7d": support.get("rhr_7d_avg"),
+            "rhr_delta_vs_14d": support.get("rhr_delta_vs_14d"),
+            "rhr_delta_vs_90d": support.get("rhr_delta_vs_90d"),
+            "rhr_coverage_pct_7d": support.get("rhr_7d_coverage_pct"),
+        },
+        "load_balance": {
+            "fatigue_current": support.get("fatigue_current"),
+            "fitness_current": support.get("fitness_current"),
+            "fatigue_gt_fitness": (
+                support.get("fatigue_current") is not None
+                and support.get("fitness_current") is not None
+                and support["fatigue_current"] > support["fitness_current"]
+            ),
+            "fatigue_avg_7d": support.get("fatigue_7d_avg"),
+            "fatigue_delta_vs_28d": support.get("fatigue_delta_vs_28d"),
+            "fitness_avg_7d": support.get("fitness_7d_avg"),
+            "fitness_delta_vs_28d": support.get("fitness_delta_vs_28d"),
+        },
+        "form": {
+            "current": support.get("form_current"),
+            "avg_3d": support.get("form_3d_avg"),
+            "avg_7d": support.get("form_7d_avg"),
+            "zone": support.get("form_zone"),
+        },
+    }
+
+
+def _build_capacity_context(support: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "capacity_metric": support.get("capacity_metric"),
+        "avg_7d": support.get("capacity_7d_avg"),
+        "delta_vs_28d": support.get("capacity_delta_vs_28d"),
+        "delta_vs_90d": support.get("capacity_delta_vs_90d"),
+        "best_7d": support.get("capacity_7d_best"),
+    }
+
+
+def _build_execution_context(support: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "recent_workouts_with_execution_metrics": support.get("recent_workouts_with_execution_metrics"),
+        "expensive_sessions_14d": support.get("expensive_sessions_14d"),
+        "steady_sessions_high_decoupling_14d": support.get("steady_sessions_high_decoupling_14d"),
+        "hr_load_above_power_load_sessions_14d": support.get("hr_load_above_power_load_sessions_14d"),
+        "high_cost_sessions_14d": support.get("high_cost_sessions_14d"),
+        "expensive_sessions_current_week": support.get("expensive_sessions_current_week"),
+        "last_execution_session": {
+            "type": support.get("last_execution_session_type"),
+            "expensive": support.get("last_execution_session_expensive"),
+            "decoupling_pct": support.get("last_execution_session_decoupling_pct"),
+            "if": support.get("last_execution_session_if"),
+            "rpe": support.get("last_execution_session_rpe"),
+            "feel": support.get("last_execution_session_feel"),
+        },
+        "key_workout": {
+            "date": support.get("key_workout_date"),
+            "name": support.get("key_workout_name"),
+            "type": support.get("key_workout_type"),
+            "session_class": support.get("key_workout_session_class"),
+            "execution_verdict": support.get("key_workout_execution_verdict"),
+        },
+    }
+
+
+def _build_subjective_context(support: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "mood_avg_7d": support.get("mood_7d_avg"),
+        "motivation_avg_7d": support.get("motivation_7d_avg"),
+        "coverage_pct_7d": support.get("subjective_7d_coverage_pct"),
+    }
+
+
+def _build_weight_context(support: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "avg_7d": support.get("weight_7d_avg"),
+        "delta_vs_28d": support.get("weight_delta_vs_28d"),
+        "delta_vs_90d": support.get("weight_delta_vs_90d"),
+        "coverage_pct_7d": support.get("weight_7d_coverage_pct"),
+    }
+
+
 def _build_recovery_signals(
     snapshot: dict[str, Any],
-    decision_inputs: dict[str, Any],
-    decision_support: dict[str, Any],
+    decision_state: dict[str, Any],
+    support_facts: dict[str, Any],
 ) -> dict[str, Any]:
-    expensive_sessions_14d = _to_float_or_none(decision_support.get("expensive_sessions_14d"))
-    signals = {
-        "sleep_below_baseline": decision_inputs["sleep_state"] in {"below_baseline", "well_below_baseline"},
-        "sleep_well_below_baseline": decision_inputs["sleep_state"] == "well_below_baseline",
+    expensive_sessions_14d = _to_float_or_none(support_facts.get("expensive_sessions_14d"))
+    primary = {
+        "sleep_below_baseline": decision_state["sleep_state"] in {"below_baseline", "well_below_baseline"},
+        "sleep_well_below_baseline": decision_state["sleep_state"] == "well_below_baseline",
         "hrv_suppressed": _hrv_suppressed(snapshot),
         "rhr_elevated": _rhr_elevated(snapshot),
         "fatigue_gt_fitness": _fatigue_gt_fitness(snapshot),
-        "fatigue_above_recent_norm": decision_inputs["fatigue_state"] in {"elevated", "high"},
-        "subjective_low": decision_inputs["subjective_state"] == "strained" if decision_inputs["subjective_state"] != "insufficient_data" else None,
-        "form_deeply_negative": decision_inputs["form_zone"] == "high risk" if decision_inputs["form_zone"] is not None else None,
+        "fatigue_above_recent_norm": decision_state["fatigue_state"] in {"elevated", "high"},
+        "subjective_low": decision_state["subjective_state"] == "strained" if decision_state["subjective_state"] != "insufficient_data" else None,
+        "form_deeply_negative": decision_state["form_zone"] == "high risk" if decision_state["form_zone"] is not None else None,
+    }
+    amplifiers = {
         "high_rpe_at_moderate_if": _high_rpe_at_moderate_if(snapshot),
         "recent_expensive_execution": _latest_workout_expensive(snapshot),
         "repeated_expensive_execution": expensive_sessions_14d is not None and expensive_sessions_14d >= 2,
     }
-    expensive_execution_present = bool(signals["recent_expensive_execution"]) or bool(signals["repeated_expensive_execution"])
+    expensive_execution_present = bool(amplifiers["recent_expensive_execution"]) or bool(amplifiers["repeated_expensive_execution"])
     total_signal_values = [
-        signals["sleep_below_baseline"],
-        signals["hrv_suppressed"],
-        signals["rhr_elevated"],
-        signals["fatigue_gt_fitness"],
-        signals["fatigue_above_recent_norm"],
-        signals["subjective_low"],
-        signals["form_deeply_negative"],
-        signals["high_rpe_at_moderate_if"],
+        primary["sleep_below_baseline"],
+        primary["hrv_suppressed"],
+        primary["rhr_elevated"],
+        primary["fatigue_gt_fitness"],
+        primary["fatigue_above_recent_norm"],
+        primary["subjective_low"],
+        primary["form_deeply_negative"],
+        amplifiers["high_rpe_at_moderate_if"],
         expensive_execution_present,
     ]
     strong_signal_values = [
-        signals["sleep_well_below_baseline"],
-        signals["form_deeply_negative"],
-        signals["high_rpe_at_moderate_if"],
-        signals["hrv_suppressed"],
-        signals["rhr_elevated"],
-        signals["repeated_expensive_execution"],
+        primary["sleep_well_below_baseline"],
+        primary["form_deeply_negative"],
+        amplifiers["high_rpe_at_moderate_if"],
+        primary["hrv_suppressed"],
+        primary["rhr_elevated"],
+        amplifiers["repeated_expensive_execution"],
     ]
-    signals["count_total"] = len([value for value in total_signal_values if value is True])
-    signals["count_strong"] = len([value for value in strong_signal_values if value is True])
-    return signals
+    return {
+        "primary": primary,
+        "amplifiers": amplifiers,
+        "count_total": len([value for value in total_signal_values if value is True]),
+        "count_strong": len([value for value in strong_signal_values if value is True]),
+    }
 
 
-def _build_contradictions(snapshot: dict[str, Any], decision_inputs: dict[str, Any]) -> list[str]:
-    contradictions: list[str] = []
-    sleep_state = decision_inputs["sleep_state"]
-    capacity_state = decision_inputs["capacity_state"]
-    readiness_state = decision_inputs["readiness_state"]
-    subjective_state = decision_inputs["subjective_state"]
-    mood_avg = _trend_avg(snapshot, "mood_score", "7d")
-    motivation_avg = _trend_avg(snapshot, "motivation_score", "7d")
+def _build_contradictions(
+    snapshot: dict[str, Any],
+    decision_state: dict[str, Any],
+    support_facts: dict[str, Any],
+) -> dict[str, list[str]]:
+    physiology_conflicts: list[str] = []
+    subjective_conflicts: list[str] = []
+    performance_conflicts: list[str] = []
+    sleep_state = decision_state["sleep_state"]
+    capacity_state = decision_state["capacity_state"]
+    readiness_state = decision_state["readiness_state"]
+    subjective_state = decision_state["subjective_state"]
+    mood_avg = support_facts.get("mood_7d_avg")
+    motivation_avg = support_facts.get("motivation_7d_avg")
 
     if sleep_state in {"below_baseline", "well_below_baseline"} and not _hrv_suppressed(snapshot):
-        contradictions.append("poor_sleep_but_hrv_neutral")
+        physiology_conflicts.append("poor_sleep_but_hrv_neutral")
     if sleep_state in {"below_baseline", "well_below_baseline"} and not _rhr_elevated(snapshot):
-        contradictions.append("poor_sleep_but_rhr_neutral")
+        physiology_conflicts.append("poor_sleep_but_rhr_neutral")
     if mood_avg is not None and motivation_avg is not None and mood_avg <= 2.0 and motivation_avg >= 3.5:
-        contradictions.append("good_mood_but_low_motivation")
+        subjective_conflicts.append("good_mood_but_low_motivation")
     if mood_avg is not None and motivation_avg is not None and mood_avg >= 3.5 and motivation_avg <= 2.0:
-        contradictions.append("high_motivation_but_low_mood")
+        subjective_conflicts.append("high_motivation_but_low_mood")
     if capacity_state in {"stable", "improving"} and readiness_state in {"reduced", "poor"}:
-        contradictions.append("stable_capacity_but_reduced_readiness")
-    if subjective_state == "supportive" and decision_inputs["fatigue_state"] in {"elevated", "high"}:
-        contradictions.append("good_subjective_but_elevated_load_signals")
+        performance_conflicts.append("stable_capacity_but_reduced_readiness")
+    if subjective_state == "supportive" and decision_state["fatigue_state"] in {"elevated", "high"}:
+        subjective_conflicts.append("good_subjective_but_elevated_load_signals")
     if subjective_state == "supportive" and _high_rpe_at_moderate_if(snapshot):
-        contradictions.append("good_subjective_but_high_rpe_for_moderate_if")
-    if capacity_state in {"stable", "improving"} and _recent_expensive_sessions_count(snapshot) >= 2:
-        contradictions.append("stable_capacity_but_expensive_execution")
-    return contradictions
-
-
-def _build_decision_flags(
-    decision_inputs: dict[str, Any],
-    recovery_signals: dict[str, Any],
-    contradictions: list[str],
-    decision_support: dict[str, Any],
-) -> list[str]:
-    flags: list[str] = []
-    if recovery_signals["sleep_below_baseline"]:
-        flags.append("sleep_below_baseline")
-    if recovery_signals["hrv_suppressed"]:
-        flags.append("hrv_suppressed")
-    if recovery_signals["rhr_elevated"]:
-        flags.append("rhr_elevated")
-    if recovery_signals["fatigue_above_recent_norm"]:
-        flags.append("fatigue_above_recent_norm")
-    if recovery_signals["fatigue_gt_fitness"]:
-        flags.append("fatigue_gt_fitness")
-    if decision_inputs["form_zone"] is not None:
-        flags.append(f"form_{decision_inputs['form_zone'].replace(' ', '_')}")
-    if decision_inputs["capacity_state"] != "insufficient_data":
-        flags.append(f"capacity_{decision_inputs['capacity_state']}")
-    if decision_inputs["weight_state"] in {"drifting_up", "drifting_down"}:
-        flags.append(f"weight_{decision_inputs['weight_state']}")
-    if decision_inputs["subjective_state"] in {"mixed", "strained"}:
-        flags.append(f"subjective_{decision_inputs['subjective_state']}")
-    if recovery_signals.get("recent_expensive_execution"):
-        flags.append("recent_expensive_execution")
-    if recovery_signals.get("repeated_expensive_execution"):
-        flags.append("repeated_expensive_execution")
-    if (decision_support.get("hr_load_above_power_load_sessions_14d") or 0) >= 1:
-        flags.append("hr_load_above_power_load")
-    if (decision_support.get("high_cost_sessions_14d") or 0) >= 1:
-        flags.append("session_cost_high_for_output")
-    if decision_support.get("capacity_metric_group"):
-        flags.append(f"capacity_group_{decision_support['capacity_metric_group']}")
-    if contradictions:
-        flags.append("contradictions_present")
-    return flags
-
-
-def _build_reason_codes(
-    decision_inputs: dict[str, Any],
-    decision_support: dict[str, Any],
-    recovery_signals: dict[str, Any],
-    contradictions: list[str],
-) -> list[str]:
-    reasons: list[str] = []
-    sleep_delta_28 = decision_support.get("sleep_delta_vs_28d")
-    if sleep_delta_28 is not None and sleep_delta_28 <= -0.3:
-        reasons.append("sleep_7d_below_28d")
-    if decision_inputs["sleep_state"] == "well_below_baseline":
-        reasons.append("sleep_7d_below_90d_typical_low")
-    if recovery_signals["hrv_suppressed"]:
-        reasons.append("hrv_7d_suppressed_vs_90d")
-    if recovery_signals["rhr_elevated"]:
-        reasons.append("rhr_7d_elevated_vs_90d")
-    fatigue_delta_28 = decision_support.get("fatigue_delta_vs_28d")
-    if fatigue_delta_28 is not None and fatigue_delta_28 >= 3:
-        reasons.append("fatigue_7d_above_28d")
-    if recovery_signals["fatigue_gt_fitness"]:
-        reasons.append("fatigue_gt_fitness")
-    if decision_inputs["form_zone"] is not None:
-        reasons.append(f"form_3d_in_{decision_inputs['form_zone'].replace(' ', '_')}_zone")
-    if decision_inputs["capacity_state"] == "stable":
-        reasons.append(f"{_capacity_metric_prefix_from_metric(decision_support.get('capacity_metric'))}_7d_stable_vs_28d")
-    elif decision_inputs["capacity_state"] == "improving":
-        reasons.append(f"{_capacity_metric_prefix_from_metric(decision_support.get('capacity_metric'))}_7d_improving_vs_28d")
-    elif decision_inputs["capacity_state"] in {"drifting_down", "clearly_down"}:
-        reasons.append(f"{_capacity_metric_prefix_from_metric(decision_support.get('capacity_metric'))}_7d_down_vs_90d")
-    if decision_inputs["weight_state"] == "drifting_up":
-        reasons.append("weight_7d_up_vs_28d")
-    elif decision_inputs["weight_state"] == "drifting_down":
-        reasons.append("weight_7d_down_vs_28d")
-    if decision_inputs["subjective_state"] == "strained":
-        reasons.append("subjective_7d_strained")
-    elif decision_inputs["subjective_state"] == "mixed":
-        reasons.append("subjective_7d_mixed")
-    if (decision_support.get("expensive_sessions_14d") or 0) >= 1:
-        reasons.append("expensive_execution_14d_present")
-    if (decision_support.get("expensive_sessions_14d") or 0) >= 2:
-        reasons.append("repeated_expensive_execution")
-    if (decision_support.get("hr_load_above_power_load_sessions_14d") or 0) >= 1:
-        reasons.append("hr_load_above_power_load")
-    if (decision_support.get("high_cost_sessions_14d") or 0) >= 1:
-        reasons.append("session_cost_high_for_output")
-    if recovery_signals["high_rpe_at_moderate_if"]:
-        reasons.append("high_rpe_at_moderate_if")
-    if "stable_capacity_but_reduced_readiness" in contradictions:
-        reasons.append("stable_capacity_with_reduced_readiness")
-    if "stable_capacity_but_expensive_execution" in contradictions:
-        reasons.append("stable_capacity_with_expensive_execution")
-    return reasons
+        subjective_conflicts.append("good_subjective_but_high_rpe_for_moderate_if")
+    if capacity_state in {"stable", "improving"} and (support_facts.get("expensive_sessions_14d") or 0) >= 2:
+        performance_conflicts.append("stable_capacity_but_expensive_execution")
+    return {
+        "physiology_conflicts": physiology_conflicts,
+        "subjective_conflicts": subjective_conflicts,
+        "performance_conflicts": performance_conflicts,
+    }
 
 
 def _sleep_state(snapshot: dict[str, Any]) -> str:
@@ -1450,20 +1480,20 @@ def _recovery_signal_count(
 
 
 def _recommended_load_action(
-    decision_inputs: dict[str, Any],
-    contradictions: list[str],
+    decision_state: dict[str, Any],
+    contradictions: dict[str, list[str]],
     recovery_signals: dict[str, Any],
-    decision_support: dict[str, Any],
+    support_facts: dict[str, Any],
 ) -> str:
-    readiness_state = decision_inputs["readiness_state"]
-    fatigue_state = decision_inputs["fatigue_state"]
-    form_zone = decision_inputs["form_zone"]
-    process_state = decision_inputs["process_state"]
-    subjective_state = decision_inputs["subjective_state"]
+    readiness_state = decision_state["readiness_state"]
+    fatigue_state = decision_state["fatigue_state"]
+    form_zone = decision_state["form_zone"]
+    process_state = decision_state["process_state"]
+    subjective_state = decision_state["subjective_state"]
 
     if process_state == "process_showing_overload" and form_zone == "high risk":
         return "deload_week"
-    if recovery_signals["repeated_expensive_execution"] and fatigue_state in {"elevated", "high"}:
+    if recovery_signals["amplifiers"]["repeated_expensive_execution"] and fatigue_state in {"elevated", "high"}:
         return "reduce_20_30"
     if readiness_state == "poor" or recovery_signals["count_strong"] >= 2:
         return "recovery_day"
@@ -1471,16 +1501,15 @@ def _recommended_load_action(
         return "recovery_day"
     if readiness_state == "reduced" or fatigue_state in {"elevated", "high"}:
         return "reduce_20_30"
-    if recovery_signals["recent_expensive_execution"] or (decision_support.get("expensive_sessions_14d") or 0) >= 2:
+    if recovery_signals["amplifiers"]["recent_expensive_execution"] or (support_facts.get("expensive_sessions_14d") or 0) >= 2:
         return "keep_but_simplify"
-    if subjective_state in {"mixed", "strained"} or contradictions:
+    if subjective_state in {"mixed", "strained"} or _contradiction_count(contradictions) > 0:
         return "keep_but_simplify"
     return "keep"
 
 
 def _build_load_action_detail(recommended_load_action: str) -> dict[str, Any]:
     base = {
-        "primary": recommended_load_action,
         "reduce_volume_pct": 0,
         "reduce_intensity_pct": 0,
         "avoid_session_types": [],
@@ -1537,54 +1566,62 @@ def _build_plan_adherence(snapshot: dict[str, Any]) -> Optional[dict[str, Any]]:
 
 
 def _build_decision_debug(
-    decision_inputs: dict[str, Any],
-    contradictions: list[str],
+    decision_state: dict[str, Any],
+    contradictions: dict[str, list[str]],
     recovery_signals: dict[str, Any],
     confidence_precalc: str,
 ) -> dict[str, Any]:
     if recovery_signals["count_strong"] >= 2:
         load_decision_trigger = "strong_recovery_signals"
-    elif recovery_signals.get("repeated_expensive_execution"):
+        primary_trigger_group = "recovery_primary"
+    elif recovery_signals["amplifiers"].get("repeated_expensive_execution"):
         load_decision_trigger = "repeated_expensive_execution"
-    elif recovery_signals.get("recent_expensive_execution"):
+        primary_trigger_group = "execution_amplifier"
+    elif recovery_signals["amplifiers"].get("recent_expensive_execution"):
         load_decision_trigger = "recent_expensive_execution"
-    elif decision_inputs["fatigue_state"] in {"elevated", "high"} and decision_inputs["sleep_state"] in {"below_baseline", "well_below_baseline"}:
+        primary_trigger_group = "execution_amplifier"
+    elif decision_state["fatigue_state"] in {"elevated", "high"} and decision_state["sleep_state"] in {"below_baseline", "well_below_baseline"}:
         load_decision_trigger = "fatigue_plus_sleep"
-    elif contradictions:
+        primary_trigger_group = "recovery_primary"
+    elif _contradiction_count(contradictions) > 0:
         load_decision_trigger = "contradictions_plus_caution"
+        primary_trigger_group = "contradiction_caution"
     else:
         load_decision_trigger = "baseline_stability"
+        primary_trigger_group = "stability"
     return {
         "load_decision_trigger": load_decision_trigger,
-        "load_decision_overridden_by": None,
-        "confidence_downgraded_by_contradictions": bool(contradictions) and confidence_precalc != "high",
-        "sleep_state_rule": "well_below_baseline only below 90d typical_low or delta_vs_90d <= -0.8h",
-        "subjective_state_rule": "mixed allowed when 7d coverage >= 50% and mood/motivation conflict is visible",
-        "recovery_day_rule": "poor readiness or 2+ strong signals or high fatigue plus 3+ total signals",
+        "primary_trigger_group": primary_trigger_group,
+        "confidence_downgraded_by_contradictions": _contradiction_count(contradictions) > 0 and confidence_precalc != "high",
+        "contradiction_groups_present": [key for key, values in contradictions.items() if values],
     }
 
 
 def _decision_confidence(
-    decision_inputs: dict[str, Any],
-    contradictions: list[str],
+    decision_state: dict[str, Any],
+    contradictions: dict[str, list[str]],
 ) -> str:
-    data_quality_state = decision_inputs["data_quality_state"]
+    data_quality_state = decision_state["data_quality_state"]
     core_states = (
-        decision_inputs["readiness_state"],
-        decision_inputs["fatigue_state"],
-        decision_inputs["fitness_state"],
-        decision_inputs["capacity_state"],
-        decision_inputs["sleep_state"],
+        decision_state["readiness_state"],
+        decision_state["fatigue_state"],
+        decision_state["fitness_state"],
+        decision_state["capacity_state"],
+        decision_state["sleep_state"],
     )
     if data_quality_state == "weak":
         return "low"
     if any(value == "insufficient_data" for value in core_states):
         return "low"
-    if contradictions:
+    if _contradiction_count(contradictions) > 0:
         return "medium" if data_quality_state == "strong" else "low"
     if data_quality_state == "strong":
         return "high"
     return "medium"
+
+
+def _contradiction_count(contradictions: dict[str, list[str]]) -> int:
+    return sum(len(values) for values in contradictions.values())
 
 
 def _data_quality_state(snapshot: dict[str, Any]) -> str:
@@ -1644,25 +1681,6 @@ def _capacity_metric_name(snapshot: dict[str, Any]) -> str:
     ride_trend = _trend_window(snapshot, "ride_eftp_watts", "7d")
     if _window_has_usable_coverage(ride_trend, min_n=5):
         return "ride_eftp_watts"
-    return "run_eftp"
-
-
-def _capacity_metric_group(metric_name: str) -> str:
-    if metric_name.startswith("ride_"):
-        return "cycling"
-    return "running"
-
-
-def _capacity_metric_prefix_from_metric(metric_name: Any) -> str:
-    if isinstance(metric_name, str) and metric_name.startswith("ride_"):
-        return "ride_eftp"
-    return "run_eftp"
-
-
-def _capacity_metric_prefix(snapshot: dict[str, Any]) -> str:
-    metric_name = _capacity_metric_name(snapshot)
-    if metric_name.startswith("ride_"):
-        return "ride_eftp"
     return "run_eftp"
 
 
@@ -2326,6 +2344,42 @@ def _prune_for_export(value: Any) -> Any:
         return pruned_list
 
     return value
+
+
+def _reshape_export_snapshot(snapshot: dict[str, Any]) -> dict[str, Any]:
+    decision_block: dict[str, Any] = {
+        "inputs": snapshot.get("decision_inputs"),
+        "primary_state_support": snapshot.get("primary_state_support"),
+        "recovery_signals": snapshot.get("recovery_signals"),
+        "contradictions": snapshot.get("contradictions"),
+        "outcome": {
+            "recommended_load_action": snapshot.get("recommended_load_action"),
+            "load_action_detail": snapshot.get("load_action_detail"),
+            "confidence_precalc": snapshot.get("confidence_precalc"),
+        },
+        "context": {
+            "capacity": snapshot.get("capacity_context"),
+            "execution": snapshot.get("execution_context"),
+            "subjective": snapshot.get("subjective_context"),
+            "weight": snapshot.get("weight_context"),
+        },
+    }
+    if snapshot.get("plan_adherence") is not None:
+        decision_block["plan_adherence"] = snapshot.get("plan_adherence")
+
+    return {
+        "snapshot_version": snapshot.get("snapshot_version"),
+        "history": {
+            "current_week": snapshot.get("current_week"),
+            "weekly_detailed_summary": snapshot.get("weekly_detailed_summary"),
+            "weekly_history_summary": snapshot.get("weekly_history_summary"),
+        },
+        "trends_and_baselines": {
+            "current_trends": snapshot.get("current_trends"),
+            "personal_baselines": snapshot.get("personal_baselines"),
+        },
+        "decision": decision_block,
+    }
 
 
 def _window_stat(

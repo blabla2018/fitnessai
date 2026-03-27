@@ -1,11 +1,11 @@
 # JSON Structure
 
-Use the JSON blocks like this:
+Use the exported JSON blocks like this:
 
-- `current_week` = the current incomplete week. It uses the same structure as a normal week, but includes `is_partial = true`.
-- `weekly_detailed_summary` = recent completed weeks with nested `days`.
-- `weekly_history_summary` = longer weekly history without nested `days`, but still with weekly notes.
-- `weekly_detailed_summary` and `weekly_history_summary` must not overlap. The history block starts only after the last week included in the detailed block.
+- `history.current_week` = the current incomplete week. It uses the same structure as a normal week, but includes `is_partial = true`.
+- `history.weekly_detailed_summary` = recent completed weeks with nested `days`.
+- `history.weekly_history_summary` = longer weekly history without nested `days`, but still with weekly notes.
+- `history.weekly_detailed_summary` and `history.weekly_history_summary` must not overlap. The history block starts only after the last week included in the detailed block.
 - Each week may include:
   - `week_of_year` = ISO week number within the year
   - weekly summary metrics
@@ -26,8 +26,8 @@ Use the JSON blocks like this:
   - subjective state field `feel`
   - intent/helper fields such as `session_class`, `is_commute_like`, `upper_zone_leakage_pct`, `execution_verdict_precalc`
   - `description` = workout-level free text, typically taken from the Intervals activity description
-- `current_trends` = short operational trend blocks grouped by metric, not by time window. Each metric may contain only the windows that are useful for interpretation, for example `3d / 7d / 14d / 28d`.
-- Each `current_trends` metric window may include:
+- `trends_and_baselines.current_trends` = short operational trend blocks grouped by metric, not by time window. Each metric may contain only the windows that are useful for interpretation, for example `3d / 7d / 14d / 28d`.
+- Each `trends_and_baselines.current_trends` metric window may include:
   - `avg`
   - `n`
   - `coverage_pct`
@@ -55,7 +55,7 @@ Use the JSON blocks like this:
   - `form` -> `3d / 7d`
   - `fatigue`, `fitness`, `weight_kg`, `ride_eftp_*`, `run_eftp*` -> `7d / 28d`
   - `mood_score`, `motivation_score` -> `7d / 14d`
-- `personal_baselines` = personal baseline blocks grouped by metric with only `90d` and `365d` windows.
+- `trends_and_baselines.personal_baselines` = personal baseline blocks grouped by metric with only `90d` and `365d` windows.
 - Typical metric families in `personal_baselines` are:
   - `sleep_hours`
   - `hrv`
@@ -78,38 +78,37 @@ Use the JSON blocks like this:
   - `coverage_pct`
   - performance-specific fields such as `best_30d`, `best_90d`, `best_365d`
 - `snapshot_version` = version tag for the exported interpretation contract
-- `decision_inputs` = discrete decision states derived from trends and baselines
-- `decision_flags` = compact boolean-style fact flags already interpreted by backend logic
-- `reason_codes` = primary reason codes that explain why the decision state was chosen
-- `contradictions` = explicit disagreement markers between important signals
-- `decision_support` = compact numeric support facts for the decision layer
-- `recovery_signals` = structured recovery-warning block with boolean inputs and counts
-- `plan_adherence` = optional explicit process-vs-plan block when a real plan source and adherence logic are available
-- `load_action_detail` = operational detail for how the recommended load change should be applied
-- `decision_debug` = compact debug metadata for why the engine selected its load decision and confidence
-- `recommended_load_action` = discrete load decision chosen from a fixed rubric
-- `confidence_precalc` = backend-calculated decision confidence
+- `decision.inputs` = discrete decision states derived from trends and baselines
+- `decision.primary_state_support` = high-priority numeric support for short-term readiness and load decisions
+- `decision.recovery_signals` = structured recovery-warning block with boolean inputs and counts
+- `decision.contradictions` = grouped disagreement markers between important signals
+- `decision.outcome.recommended_load_action` = discrete load decision chosen from a fixed rubric
+- `decision.outcome.load_action_detail` = operational detail for how the recommended load change should be applied
+- `decision.outcome.confidence_precalc` = backend-calculated decision confidence
+- `decision.context.capacity` = slower performance context and the primary capacity metric
+- `decision.context.execution` = recent session-cost and execution context
+- `decision.context.subjective` = recent mood / motivation context
+- `decision.context.weight` = recent body-mass context
+- `decision.plan_adherence` = optional explicit process-vs-plan block when a real plan source and adherence logic are available
 
-`decision_inputs` is the main structured state for downstream reasoning. Typical fields:
+`decision.inputs` is the main structured state for downstream reasoning. Typical fields:
 
 - `readiness_state`
 - `fatigue_state`
-- `fitness_state`
-- `capacity_state`
 - `form_zone`
 - `sleep_state`
-- `weight_state`
 - `subjective_state`
 - `process_state`
 - `data_quality_state`
 
 The decision layer should be treated as the preferred interpretation layer above raw metrics:
 
-- `current_trends` and `personal_baselines` remain the numeric source of truth
-- `decision_inputs` and related blocks are the discrete interpretation layer
+- `trends_and_baselines.current_trends` and `trends_and_baselines.personal_baselines` remain the numeric source of truth
+- `decision.inputs`, `decision.primary_state_support`, and `decision.recovery_signals` are the main decision core
+- `decision.context.capacity`, `decision.context.execution`, `decision.context.subjective`, and `decision.context.weight` are supporting context layers
 - the final LLM answer should explain this state, not re-derive it freely
 
-If `decision_support.capacity_metric` is present:
+If `decision.context.capacity.capacity_metric` is present:
 
 - use it as the primary capacity metric for the main capacity verdict
 - use other capacity metrics only as secondary context or for explicit comparison

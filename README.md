@@ -10,7 +10,7 @@ File roles:
 What it does:
 - pulls data from Intervals
 - stores it locally in SQLite
-- keeps the local database as a cache plus deterministic parsed derivatives of Intervals notes
+- keeps the local database as a read-only cache of synced Intervals data
 - builds a compact `metrics_YYYY-MM-DD.json` snapshot for AI analysis
 
 ## Getting Started
@@ -76,10 +76,10 @@ The project brings together:
 - weekly summaries and activity-level context
 
 The main output right now is a local JSON snapshot that AI can use for clear analysis of status, training, and recommendations. That JSON snapshot is organized into a few practical layers:
-- `current_week` and weekly history for recent training context
-- `current_trends` and `personal_baselines` for short-term change vs personal norm
+- `history` for recent training context and weekly history
+- `trends_and_baselines` for short-term change vs personal norm
+- `decision` for the compact recommendation-oriented interpretation layer
 - workout-level details for execution, cost, and synced raw notes/descriptions
-- a decision layer with readiness, fatigue, confidence, and load-action support
 
 In practice, this lets AI answer not only `what the numbers are`, but also `what is changing`, `why it matters`, and `what to do next`.
 

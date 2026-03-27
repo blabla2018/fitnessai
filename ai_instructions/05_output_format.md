@@ -38,7 +38,7 @@ Routing rules:
 - For source-trace questions, provenance comes before interpretation.
 - For prescription and forecast questions, confidence and uncertainty must be visible.
 - For direct historical lookup questions, prefer `database_query_mode` and answer from the local SQLite database when possible.
-- Do not expose raw internal labels such as `decision_flags`, `reason_codes`, or `recommended_load_action` in the normal report unless the user explicitly asks for the technical internals.
+- Do not expose raw internal labels such as `recommended_load_action` in the normal report unless the user explicitly asks for the technical internals.
 - When decision-layer internals are relevant, translate them into plain user language:
   - what is happening
   - why it matters

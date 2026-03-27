@@ -76,14 +76,14 @@ Key derived comparisons to use when data is available:
 - current week vs previous week
 - current week vs 4-week baseline
 
-Use the `current_trends` block as the main short-term interpretation layer:
+Use the `trends_and_baselines.current_trends` block as the main short-term interpretation layer:
 
 - prefer precomputed `delta_vs_*` fields over recomputing them mentally
 - always read `n` and `coverage_pct` before trusting an average
 - use `sd` to distinguish a likely real shift from normal noise
 - use `zone_majority` for `form` when present
 
-Use `personal_baselines` as the athlete's personal norm:
+Use `trends_and_baselines.personal_baselines` as the athlete's personal norm:
 
 - prefer `90d` and `365d` for long-horizon comparisons
 - use `typical_low` / `typical_high` as a normal corridor, not as a medical threshold
@@ -91,7 +91,7 @@ Use `personal_baselines` as the athlete's personal norm:
 - treat both cycling and running performance proxies as the same conceptual capacity layer, while keeping their sport domain separate:
   - absolute proxy (`*_watts` / `run_eftp`)
   - relative proxy per kg (`*_wkg`)
-- if `decision_support.capacity_metric` is present, use it as the primary capacity metric for the main capacity verdict
+- if `decision.context.capacity.capacity_metric` is present, use it as the primary capacity metric for the main capacity verdict
 - use other capacity metrics only as secondary context or for explicit comparison
 - do not let secondary capacity metrics override the primary capacity verdict unless the user explicitly asks for that comparison or the metrics clearly describe different domains
 
@@ -160,7 +160,7 @@ For forecast questions:
 
 Interpretation guidance:
 
-- Treat `current_week` as incomplete. Do not compare it directly to completed weeks as if it were a full week.
+- Treat `history.current_week` as incomplete. Do not compare it directly to completed weeks as if it were a full week.
 - Notes at workout, day, and week level must always be read and considered during analysis.
 - Treat notes as contextual and explanatory signals, not as primary data.
 - Do not override objective metrics such as power, heart rate, fatigue, form, or modeled load with notes alone.

@@ -2,7 +2,7 @@
 
 This file defines the discrete decision layer that sits between raw metrics and the final natural-language explanation.
 
-The goal is to reduce free-form interpretation and make the final answer depend on explicit states, flags, and reason codes.
+The goal is to reduce free-form interpretation and make the final answer depend on explicit backend-derived states and support signals.
 
 These rules are app-level interpretation heuristics layered on top of Intervals data. They are not official Intervals thresholds unless explicitly stated.
 
@@ -17,21 +17,22 @@ These rules are app-level interpretation heuristics layered on top of Intervals 
 
 Use the precomputed decision layer when available:
 
-- `decision_inputs`
-- `decision_flags`
-- `reason_codes`
-- `contradictions`
-- `decision_support`
-- `recovery_signals`
-- `decision_debug`
-- `recommended_load_action`
-- `confidence_precalc`
+- `decision.inputs`
+- `decision.primary_state_support`
+- `decision.recovery_signals`
+- `decision.contradictions`
+- `decision.context.capacity`
+- `decision.context.execution`
+- `decision.context.subjective`
+- `decision.context.weight`
+- `decision.outcome.recommended_load_action`
+- `decision.outcome.confidence_precalc`
 
 If one of these blocks is missing, fall back to the lower-level metrics and say that the decision layer is incomplete.
 
 Reporting rule:
 
-- `decision_flags`, `reason_codes`, and `recommended_load_action` are internal interpretation handles, not user-facing phrasing by default.
+- `recommended_load_action` is an internal interpretation handle, not user-facing phrasing by default.
 - In a normal report, translate them into plain language rather than echoing the raw code.
 - Only expose the raw technical code when the user explicitly asks for internals, debugging, or the exact field value.
 
@@ -69,27 +70,6 @@ Interpretation:
 - `elevated` = fatigue is meaningfully above the athlete's recent norm
 - `high` = fatigue is clearly elevated and usually aligned with negative short-term recovery signs
 
-### Fitness State
-
-Allowed values:
-
-- `rising`
-- `stable`
-- `falling`
-- `insufficient_data`
-
-### Capacity State
-
-Allowed values:
-
-- `improving`
-- `stable`
-- `drifting_down`
-- `clearly_down`
-- `insufficient_data`
-
-`capacity_state` refers to the performance proxy layer such as `ride_eftp_*` or `run_eftp_*`, not to today's readiness.
-
 ### Sleep State
 
 Allowed values:
@@ -105,15 +85,6 @@ Suggested thresholds:
 - `well_below_baseline` only when `7d` sleep is below `90d typical_low`, or when `delta_vs_90d <= -0.8 h`
 - `below_baseline` when sleep is below `90d avg` or clearly below recent `28d` context
 - do not use `well_below_baseline` only because sleep is modestly below `90d avg`
-
-### Weight State
-
-Allowed values:
-
-- `stable`
-- `drifting_up`
-- `drifting_down`
-- `insufficient_data`
 
 ### Subjective State
 
@@ -376,34 +347,4 @@ Suggested interpretation:
 - `medium` = usable state with some contradiction, partial coverage, or limited evidence
 - `low` = weak coverage, insufficient recent points, or unresolved disagreement among important signals
 
-## Reason Codes
-
-Use compact, reusable fact codes rather than narrative explanations.
-
-Typical examples:
-
-- `sleep_7d_below_28d`
-- `sleep_7d_below_90d_typical_low`
-- `hrv_7d_suppressed_vs_90d`
-- `rhr_7d_elevated_vs_90d`
-- `fatigue_7d_above_28d`
-- `fatigue_gt_fitness`
-- `form_in_high_risk_zone`
-- `form_in_optimal_zone`
-- `ride_eftp_7d_stable_vs_28d`
-- `ride_eftp_7d_down_vs_90d`
-- `weight_7d_up_vs_28d`
-- `subjective_state_strained`
-- `expensive_execution_14d_present`
-- `repeated_expensive_execution`
-- `high_rpe_at_moderate_if`
-- `hr_load_above_power_load`
-- `session_cost_high_for_output`
-
-Rules:
-
-- prefer codes tied to an explicit metric and comparison window
-- keep reason codes categorical and reusable across snapshots
-- keep exact numeric payload in `decision_support`, not inside the code string
-- do not emit vague codes like `recovery_bad`
-- use reason codes as the primary evidence layer for the final explanation
+Use numeric payload from `decision.primary_state_support`, `decision.context.capacity`, `decision.context.execution`, `decision.context.subjective`, and `decision.context.weight` when explaining the contradiction or decision, rather than inventing extra internal code layers.

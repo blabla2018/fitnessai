@@ -26,13 +26,13 @@
 - `power_np` = session power summary for this snapshot: normalized power when available, otherwise a weighted-power proxy.
 - `if` = intensity factor for a session. Interpret it as relative intensity, not as load by itself.
 - `rpe` = session rating of perceived exertion.
-- `feel` = same-session subjective state / feel score from Intervals. Treat it as a state signal, not as load.
+- `feel` = same-session subjective state / feel score from Intervals. Treat it as a state signal, not as load. It uses a `1..5` scale where lower is better:
 - Practical `feel` interpretation:
-  - `1` = strong
-  - `2` = good
-  - `3` = normal
-  - `4` = poor
-  - `5` = weak
+  - `1` = Strong
+  - `2` = Good
+  - `3` = Normal
+  - `4` = Poor
+  - `5` = Weak
 - `cadence_avg` = average cadence for the session.
 - `decoupling_pct` = aerobic decoupling / Pw:HR drift proxy for the session. Higher absolute values usually mean worse aerobic durability, more fatigue, more heat cost, or more fueling issues. Best interpreted on comparable steady sessions.
 - `efficiency_factor` = session efficiency proxy, approximately normalized power divided by average heart rate. Best used across comparable steady sessions.
@@ -46,16 +46,16 @@
 - `session_class` = backend-derived workout intent / class. Prefer it as the primary workout-type hint when present.
 - `execution_verdict_precalc` = backend-derived session verdict. Prefer it as a summary helper, but still verify it against the session metrics.
 - `upper_zone_leakage_pct` = percent of session time above easy-zone intent, mainly for endurance rides.
-- `mood` = same-day subjective mood / emotional tone, typically on a `1..4` scale:
-  - `1` = great
-  - `2` = good
-  - `3` = average / ok
-  - `4` = grumpy / poor
-- `motivation` = same-day subjective willingness to train, typically on a `1..4` scale:
-  - `1` = extreme motivation
-  - `2` = high motivation
-  - `3` = average / acceptable motivation
-  - `4` = low motivation / resistance to train
+- `mood` = same-day subjective mood / emotional tone, typically on a `1..4` scale where lower is better:
+  - `1` = Great
+  - `2` = Good
+  - `3` = Ok
+  - `4` = Grumpy
+- `motivation` = same-day subjective willingness to train, typically on a `1..4` scale where lower is better:
+  - `1` = Extreme
+  - `2` = Good
+  - `3` = Avg
+  - `4` = Low
 - Key distinction:
   - `motivation` = willingness to act, train, and tolerate load
   - `mood` = emotional state / emotional tone
