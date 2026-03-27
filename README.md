@@ -10,6 +10,7 @@ File roles:
 What it does:
 - pulls data from Intervals
 - stores it locally in SQLite
+- keeps the local database as a cache plus deterministic parsed derivatives of Intervals notes
 - builds a compact `metrics_YYYY-MM-DD.json` snapshot for AI analysis
 
 ## Getting Started
@@ -63,6 +64,9 @@ Re-export the snapshot without a new sync:
 python3 -m app.main export-metrics
 ```
 
+Workout activity descriptions should be updated through the official Intervals API directly, not through a local CLI wrapper. The local database is only a cache and should be refreshed after such updates.
+Weekly notes should also be updated through the official Intervals API directly, not through a local CLI wrapper. The local database is only a cache and should be refreshed after such updates.
+
 ## Current Scope
 
 The project brings together:
@@ -74,7 +78,7 @@ The project brings together:
 The main output right now is a local JSON snapshot that AI can use for clear analysis of status, training, and recommendations. That JSON snapshot is organized into a few practical layers:
 - `current_week` and weekly history for recent training context
 - `current_trends` and `personal_baselines` for short-term change vs personal norm
-- workout-level details for execution, cost, and notes
+- workout-level details for execution, cost, and synced raw notes/descriptions
 - a decision layer with readiness, fatigue, confidence, and load-action support
 
 In practice, this lets AI answer not only `what the numbers are`, but also `what is changing`, `why it matters`, and `what to do next`.

@@ -80,22 +80,33 @@ class IntervalsClient:
         return self.athlete_id
 
     def _get(self, path: str, query_params: dict[str, str]) -> str:
+        return self._request("GET", path, query_params=query_params)
+
+    def _request(
+        self,
+        method: str,
+        path: str,
+        query_params: Optional[dict[str, str]] = None,
+    ) -> str:
         if not self.is_configured():
             raise ValueError(self.configuration_hint())
 
         time.sleep(max(self.request_pause_seconds, 0.0))
-        query = urlencode(query_params)
-        url = f"{self.base_url}{path}?{query}"
+        query = urlencode(query_params or {})
+        url = f"{self.base_url}{path}"
+        if query:
+            url = f"{url}?{query}"
         auth_pair = f"API_KEY:{self.api_key}".encode("utf-8")
         auth_header = base64.b64encode(auth_pair).decode("ascii")
+        headers = {
+            "Authorization": f"Basic {auth_header}",
+            "Accept": "application/json, text/csv;q=0.9",
+            "User-Agent": INTERVALS_USER_AGENT,
+        }
         request = Request(
             url,
-            headers={
-                "Authorization": f"Basic {auth_header}",
-                "Accept": "application/json, text/csv;q=0.9",
-                "User-Agent": INTERVALS_USER_AGENT,
-            },
-            method="GET",
+            headers=headers,
+            method=method,
         )
 
         try:

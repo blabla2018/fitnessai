@@ -10,9 +10,14 @@ Role of this file:
 
 ## Project rules
 
-- Intervals API is read-only by default.
-- Allowed HTTP methods for Intervals integration: `GET`.
-- Never write, delete, or change remote Intervals data.
+- The Python application code in this repo is read-only against Intervals and should only be used for reading, syncing, and exporting.
+- Allowed HTTP methods for Intervals integration inside the repo code: `GET`.
+- Do not add local CLI wrappers or Python app commands for writing workout notes, weekly notes, or activity descriptions.
+- Remote writes are allowed only when the user explicitly asks to save their own workout note or week note.
+- Treat note-saving requests as natural-language commands from the user.
+- When the user explicitly asks to save a note, use the agreed final text, find the correct remote target, write it through the official Intervals API outside the Python app code in this repo, and then run a read-only sync so the local cache matches remote state.
+- For workout notes, write to the activity `description`.
+- For weekly notes, create or update a Sunday `Daily Note` for that week.
 - Never store Intervals credentials in committed source files.
 - Use environment variables for local secrets.
 - This project has only one local SQLite database, stored inside this repo.
